@@ -1,0 +1,12 @@
+# personal / generated - never commit
+config.json
+config.tmp
+data/*
+!data/.gitkeep
+model/*
+!model/.gitkeep
+logs/
+__pycache__/
+*.pyc
+.pytest_cache/
+.venv/

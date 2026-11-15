@@ -1,0 +1,230 @@
+<!doctype html>
+<html lang="th">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1, viewport-fit=cover">
+<meta name="theme-color" content="#0b1120">
+<title>Water Sentinel</title>
+<link rel="icon" href="data:image/svg+xml,<svg xmlns='http://www.w3.org/2000/svg' viewBox='0 0 100 100'><text y='.9em' font-size='90'>💧</text></svg>">
+<link rel="preconnect" href="https://fonts.googleapis.com">
+<link href="https://fonts.googleapis.com/css2?family=Sarabun:wght@400;600;700;800&display=swap" rel="stylesheet">
+<link rel="stylesheet" href="/static/style.css">
+<script src="/static/vendor/chart.umd.js"></script>
+</head>
+<body>
+<header class="top">
+  <div class="top-inner">
+    <div class="brand"><span class="logo">💧</span>Water Sentinel</div>
+    <span class="pill" id="linkPill"><span class="dot" id="linkDot"></span><span id="linkText">กำลังเชื่อมต่อ...</span></span>
+    <span class="pill" id="modelPill">ไม่มีโมเดล</span>
+  </div>
+  <nav class="tabs" id="tabs">
+    <button data-v="live" class="on">ภาพรวม</button>
+    <button data-v="record">เก็บข้อมูล</button>
+    <button data-v="model">เทรน &amp; เปรียบเทียบโมเดล</button>
+    <button data-v="viz">Visualization</button>
+    <button data-v="settings">ตั้งค่า</button>
+  </nav>
+</header>
+
+<main>
+<!-- ======================= LIVE ======================= -->
+<section class="view on" id="v-live">
+  <div class="grid">
+    <div class="card hero span-12" id="hero">
+      <div class="icon" id="heroIcon">💤</div>
+      <div style="flex:1;min-width:220px">
+        <div class="title" id="heroTitle">ยังไม่ได้เปิดเฝ้าระวัง</div>
+        <div class="sub" id="heroSub">เปิดสวิตช์เพื่อเริ่มตรวจจับความผิดปกติแบบเรียลไทม์</div>
+      </div>
+      <div style="display:flex;flex-direction:column;gap:8px;align-items:flex-end">
+        <label class="switch"><span>โหมดเฝ้าระวัง</span><input type="checkbox" id="monitorToggle"><span class="track"></span></label>
+        <span class="hint" style="margin:0" id="heroModel"></span>
+      </div>
+    </div>
+
+    <div class="span-12 grid" id="tiles" style="grid-template-columns:repeat(auto-fit,minmax(170px,1fr))"></div>
+
+    <div class="card span-8">
+      <div class="row"><h2>คะแนนความผิดปกติ</h2><span class="spacer"></span><span class="hint" style="margin:0" id="ratioText">–</span></div>
+      <p class="hint">0 = เหมือนน้ำปกติ · 1 = เส้นเตือน · เตือนเมื่อเกินเส้นติดกัน 3 ค่า (ลดการเตือนผิดจากฟองอากาศ)</p>
+      <div class="gauge" style="margin-bottom:12px"><i id="gaugeBar"></i><b></b></div>
+      <div class="chart-box"><canvas id="cScore"></canvas></div>
+    </div>
+    <div class="card span-4">
+      <div class="row"><h2>เหตุการณ์</h2><span class="spacer"></span>
+        <button class="btn ghost sm" id="btnSound" title="เปิดเสียงเตือน">🔔 เปิดเสียง/แจ้งเตือน</button></div>
+      <ul class="events" id="events"></ul>
+    </div>
+
+    <div class="card span-12" id="simCard" hidden>
+      <h2>🧪 โหมดจำลอง</h2>
+      <p class="hint">ไม่ได้ใช้บอร์ดจริง ลองกดสถานการณ์เพื่อดูว่าระบบตรวจจับและแจ้งเตือนอย่างไร</p>
+      <div class="chips" id="simChips"></div>
+    </div>
+  </div>
+</section>
+
+<!-- ======================= RECORD ======================= -->
+<section class="view" id="v-record">
+  <div class="grid">
+    <div class="card span-6">
+      <h2>เก็บข้อมูลหนึ่งรอบ</h2>
+      <p class="hint">หนึ่งรอบ = น้ำหนึ่งแก้ว จุ่มหัววัดให้นิ่งก่อนกดเริ่ม · 60 วินาทีแรกของรอบ normal จะถูกตัดทิ้งตอนเทรน</p>
+      <div class="grid" style="grid-template-columns:1fr 1fr;gap:10px">
+        <div><label class="f">หมายเลขรอบ</label><input type="number" id="recRun" min="1"></div>
+        <div><label class="f">เวลา (นาที)</label><input type="number" id="recMin" value="5" min="0.5" step="0.5"></div>
+      </div>
+      <label class="f">เงื่อนไข (label)</label>
+      <input type="text" id="recLabel" value="normal">
+      <div class="chips" id="labelChips"></div>
+      <div class="row" style="margin-top:14px">
+        <button class="btn" id="btnRec">● เริ่มเก็บ</button>
+        <button class="btn danger" id="btnRecStop" disabled>■ หยุด</button>
+        <span class="hint" style="margin:0" id="recMsg"></span>
+      </div>
+      <div class="progress" style="margin-top:14px"><i id="recBar"></i></div>
+      <div class="kpis" style="margin-top:12px">
+        <div class="tile"><div class="k">แถวที่บันทึก</div><div class="v" id="recRows">0</div></div>
+        <div class="tile"><div class="k">เวลาที่ผ่านไป</div><div class="v" id="recTime">0<span class="u">s</span></div></div>
+      </div>
+    </div>
+    <div class="card span-6">
+      <h2>แผนเก็บข้อมูลที่แนะนำ</h2>
+      <ol class="hint" style="font-size:14px;line-height:1.8">
+        <li><b>normal อย่างน้อย 5 รอบ</b> คนละแก้ว คนละช่วงเวลา/วัน (ยิ่งหลากหลาย เตือนผิดยิ่งน้อย)</li>
+        <li>ทุกรอบใช้ภาชนะ ระดับน้ำ และตำแหน่งหัววัดเหมือนเดิม</li>
+        <li>รอบ anomaly ละ 3 นาที: เกลือ, เบกกิ้งโซดา, แป้งข้าวโพด, น้ำร้อน (และน้ำส้มสายชูถ้าใช้ pH)</li>
+        <li>เทรนครั้งแรกด้วย normal อย่างเดียวได้ แต่ต้องมี anomaly จึงจะเปรียบเทียบโมเดลได้ครบ</li>
+      </ol>
+      <div id="recPlan"></div>
+    </div>
+    <div class="card span-12">
+      <div class="row"><h2>รอบที่เก็บแล้ว</h2><span class="spacer"></span><span class="hint" style="margin:0" id="runsSummary"></span></div>
+      <div class="table-wrap" style="margin-top:10px"><table>
+        <thead><tr><th>รอบ</th><th>เงื่อนไข</th><th>เวลา</th><th class="num">แถว</th><th>pH</th><th>ไฟล์</th></tr></thead>
+        <tbody id="runsBody"></tbody></table></div>
+    </div>
+  </div>
+</section>
+
+<!-- ======================= MODEL ======================= -->
+<section class="view" id="v-model">
+  <div class="grid">
+    <div class="card span-12">
+      <div class="row">
+        <div><h2>เทรนและเปรียบเทียบ 5 โมเดล</h2>
+          <p class="hint" style="margin:0">ทุกโมเดลใช้ข้อมูลและการประเมินแบบเดียวกัน: ฝึกด้วยน้ำปกติ แล้วทดสอบกับรอบที่โมเดลไม่เคยเห็น</p></div>
+        <span class="spacer"></span>
+        <div class="seg" id="sensorSeg"><button data-ph="0">3 เซนเซอร์</button><button data-ph="1">4 เซนเซอร์ (+pH)</button></div>
+        <button class="btn" id="btnTrain">เทรนโมเดล</button>
+      </div>
+      <div id="trainMsg"></div>
+    </div>
+    <div class="span-12" id="modelResults"></div>
+  </div>
+</section>
+
+<!-- ======================= VIZ ======================= -->
+<section class="view" id="v-viz">
+  <div class="grid">
+    <div class="card span-12" id="vizEmpty"><h2>ยังไม่มีผลการเทรน</h2><p class="hint">เก็บข้อมูลแล้วกดเทรนที่แท็บ "เทรน &amp; เปรียบเทียบโมเดล"</p></div>
+    <div class="card span-12 viz-on">
+      <div class="row"><h2>คะแนนตามเวลา แยกตามรอบ</h2><span class="spacer"></span><select id="tlModel" style="width:auto"></select></div>
+      <p class="hint">แต่ละสีคือหนึ่งรอบ · เส้นประ = เส้นเตือน (1.0) · น้ำปกติควรอยู่ใต้เส้น น้ำผิดปกติควรอยู่เหนือเส้น</p>
+      <div class="chart-box tall"><canvas id="cTimeline"></canvas></div>
+    </div>
+    <div class="card span-6 viz-on">
+      <h2>ROC curve</h2>
+      <p class="hint">ยิ่งโค้งเข้ามุมซ้ายบนยิ่งดี · AUC = 1 แยกได้สมบูรณ์ · 0.5 = เดาสุ่ม (ไม่ขึ้นกับการตั้งเกณฑ์)</p>
+      <div class="chart-box sq"><canvas id="cRoc"></canvas></div>
+    </div>
+    <div class="card span-6 viz-on">
+      <div class="row"><h2>ข้อมูลจริงสองเซนเซอร์</h2><span class="spacer"></span>
+        <select id="scX" style="width:auto"></select><select id="scY" style="width:auto"></select></div>
+      <p class="hint">วงรี = ขอบเขตน้ำปกติของ MSPC (ประมาณในสองมิติ) · จุดนอกวงรีคือค่าที่ต่างจากน้ำปกติ</p>
+      <div class="chart-box sq"><canvas id="cScatter"></canvas></div>
+    </div>
+    <div class="card span-12 viz-on">
+      <div class="row"><h2>Embedding: PCA / t-SNE / UMAP</h2><span class="spacer"></span>
+        <div class="seg" id="embSeg"><button data-m="pca" class="on">PCA</button><button data-m="tsne">t-SNE</button><button data-m="umap">UMAP</button></div>
+        <div class="seg" id="embColor"><button data-c="label" class="on">สีตามเงื่อนไข</button><button data-c="alarm">สีตามการเตือน</button></div></div>
+      <p class="hint" id="embNote">ฉายข้อมูลหลายเซนเซอร์ลงสองมิติเพื่อดูว่าน้ำแต่ละแบบแยกกลุ่มกันไหม (ภาพเชิงคุณภาพ ใช้ประกอบการอธิบาย ไม่ใช่ตัวตัดสิน)</p>
+      <div class="chart-box sq" style="height:440px"><canvas id="cEmbed"></canvas></div>
+    </div>
+  </div>
+</section>
+
+<!-- ======================= SETTINGS ======================= -->
+<section class="view" id="v-settings">
+  <div class="grid">
+    <div class="card span-6">
+      <h2>การเชื่อมต่อ</h2>
+      <label class="f">พอร์ต ESP32</label>
+      <div class="row"><select id="setPort" style="flex:1"></select><button class="btn ghost sm" id="btnPorts">รีเฟรช</button></div>
+      <p class="hint">"อัตโนมัติ" จะหาบอร์ด CP210x/CH340 เอง · "SIM" = จำลองข้อมูลโดยไม่ใช้บอร์ด</p>
+      <h3>เซนเซอร์</h3>
+      <label class="switch" style="font-weight:600"><input type="checkbox" id="setPh"><span class="track"></span><span>ใช้เซนเซอร์ pH (ต้องเทรนใหม่)</span></label>
+      <label class="f">อัตราส่วนตัวแบ่งแรงดัน pH (10k/10k = 2.0, ไม่มีตัวแบ่ง = 1.0)</label>
+      <input type="number" id="setDiv" step="0.01" min="1">
+    </div>
+
+    <div class="card span-6">
+      <h2>คาลิเบรต</h2>
+      <p class="hint">กดปุ่มขณะหัววัดอยู่ในสภาพที่บอก ระบบใช้ค่ามัธยฐาน 10 วินาทีล่าสุด · การคาลิเบรตมีผลกับค่าที่แสดง และโมเดลที่เทรนหลังจากนี้</p>
+      <h3>TDS</h3>
+      <div class="row"><button class="btn ghost sm" id="calAir">1) หัววัดแห้งในอากาศ → บันทึก offset</button><span class="hint" style="margin:0" id="calTdsInfo"></span></div>
+      <div class="row" style="margin-top:8px"><input type="number" id="calStd" placeholder="ppm ของสารมาตรฐาน" style="width:180px">
+        <button class="btn ghost sm" id="calStdBtn">2) จุ่มสารมาตรฐาน → คำนวณ K</button></div>
+      <h3>pH (สองจุด)</h3>
+      <div class="row"><input type="number" id="ph1" value="6.86" step="0.01" style="width:90px"><button class="btn ghost sm" data-slot="0">จุ่มบัฟเฟอร์นี้ → บันทึก</button><span class="hint" style="margin:0" id="ph1Info"></span></div>
+      <div class="row" style="margin-top:8px"><input type="number" id="ph2" value="4.01" step="0.01" style="width:90px"><button class="btn ghost sm" data-slot="1">จุ่มบัฟเฟอร์นี้ → บันทึก</button><span class="hint" style="margin:0" id="ph2Info"></span></div>
+      <p class="hint" style="margin-top:8px">ล้างหัววัดด้วยน้ำกลั่นก่อนเปลี่ยนบัฟเฟอร์ทุกครั้ง</p>
+    </div>
+
+    <div class="card span-6">
+      <h2>แจ้งเตือน</h2>
+      <div class="row"><button class="btn ghost sm" id="btnNotifPerm">อนุญาตการแจ้งเตือนของเบราว์เซอร์</button><span class="hint" style="margin:0" id="notifState"></span></div>
+      <label class="switch" style="font-weight:600;margin-top:10px"><input type="checkbox" id="alSound"><span class="track"></span><span>เสียงเตือนในหน้าเว็บ</span></label>
+      <h3>มือถือ: ntfy (ง่ายสุด ไม่ต้องสมัคร)</h3>
+      <p class="hint">ติดตั้งแอป ntfy → Subscribe to topic → ใส่ชื่อ topic เดียวกับช่องนี้ (ตั้งชื่อยาวๆ เดายาก เพราะใครรู้ชื่อก็อ่านได้)</p>
+      <div class="row"><input type="text" id="alNtfy" placeholder="เช่น water-sentinel-x7k2p9" style="flex:1"><button class="btn ghost sm" id="btnTopic">สุ่มชื่อ</button></div>
+      <details><summary>Telegram / LINE</summary>
+        <label class="f">Telegram bot token</label><input type="password" id="alTgTok">
+        <label class="f">Telegram chat id</label><input type="text" id="alTgChat">
+        <label class="f">LINE Messaging API: channel access token</label><input type="password" id="alLineTok">
+        <label class="f">LINE: your user ID (Uxxxxxxxx)</label><input type="text" id="alLineUser">
+        <p class="hint">LINE Notify ปิดบริการไปแล้ว ต้องใช้ LINE Messaging API แทน</p>
+      </details>
+      <div class="row" style="margin-top:10px">
+        <label class="switch" style="font-weight:600"><input type="checkbox" id="alRecovery"><span class="track"></span><span>แจ้งตอนกลับปกติ</span></label>
+        <label class="switch" style="font-weight:600"><input type="checkbox" id="alFault"><span class="track"></span><span>แจ้งตอนเซนเซอร์มีปัญหา</span></label>
+      </div>
+      <div class="row" style="margin-top:12px"><button class="btn ghost sm" id="btnTestAlert">ส่งข้อความทดสอบ</button><span class="hint" style="margin:0" id="testAlertMsg"></span></div>
+    </div>
+
+    <div class="card span-6">
+      <h2>ดูจากมือถือ (ระยะไกล)</h2>
+      <p class="hint">แนะนำ <b>Tailscale</b> (ฟรี): ติดตั้งในคอมนี้และมือถือ ล็อกอินบัญชีเดียวกัน แล้วเปิด http://IP-ของคอม:8000 จากมือถือได้ทุกที่ ไม่ต้องเปิดพอร์ตเราเตอร์</p>
+      <label class="switch" style="font-weight:600"><input type="checkbox" id="rmOn"><span class="track"></span><span>อนุญาตเข้าจากเครื่องอื่น (ต้องรีสตาร์ทโปรแกรม)</span></label>
+      <label class="f">PIN สำหรับเข้าจากเครื่องอื่น (อย่างน้อย 6 ตัว)</label><input type="password" id="rmPin" inputmode="numeric">
+      <details><summary>ESP32 ส่งข้อมูลผ่าน WiFi (อนาคต)</summary>
+        <p class="hint">ESP32 ที่ต่อ WiFi ส่ง POST JSON ไปที่ /api/ingest พร้อม header X-Token ได้ ไม่ต้องต่อสาย USB กับคอม</p>
+        <label class="f">Ingest token</label><input type="password" id="rmToken">
+      </details>
+    </div>
+
+    <div class="card span-12">
+      <details><summary>ค่าขั้นสูงของตัวตรวจจับ (เปลี่ยนแล้วต้องเทรนใหม่)</summary>
+        <div class="grid" style="grid-template-columns:repeat(auto-fit,minmax(170px,1fr));gap:10px;margin-top:8px" id="advGrid"></div>
+      </details>
+      <div class="row" style="margin-top:14px"><button class="btn" id="btnSave">บันทึกการตั้งค่า</button>
+        <button class="btn ghost" id="btnTheme">สลับธีม สว่าง/มืด</button><span class="hint" style="margin:0" id="saveMsg"></span></div>
+    </div>
+  </div>
+</section>
+</main>
+<div class="toast" id="toast"></div>
+<script src="/static/app.js"></script>
+</body>
+</html>
