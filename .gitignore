@@ -10,3 +10,7 @@ __pycache__/
 *.pyc
 .pytest_cache/
 .venv/
+
+# ESP32 / edge-sim keys (Wi-Fi, ThingSpeak, ntfy)
+edge_secrets.json
+firmware/**/secrets.h

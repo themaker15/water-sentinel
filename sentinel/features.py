@@ -1,4 +1,6 @@
 """Raw sensor values -> features, sensor-fault detection, CSV loading."""
+import json
+import pathlib
 import re
 
 import numpy as np
@@ -47,8 +49,19 @@ def ph_value(ph_pin_v, divider, points):
     return p1 + (p2 - p1) / (v2 - v1) * (po - v1)
 
 
-def feature_list(use_ph):
+ALL_FEATURES = ["temp_c", "tds_ppm", "turb_v", "ph"]
+
+
+def feature_list(use_ph, sensors=None):
+    """Model inputs. `sensors` (a chosen subset, WP4b) wins over the plain 3-or-4 switch."""
+    if sensors is not None:
+        return [f for f in ALL_FEATURES if f in set(sensors)]
     return ["temp_c", "tds_ppm", "turb_v"] + (["ph"] if use_ph else [])
+
+
+# which fault codes belong to which model input: a sensor that is not a feature cannot invalidate rows
+FAULT_SENSOR = {"temp_missing": "temp_c", "tds_dry": "tds_ppm", "tds_saturated": "tds_ppm",
+                "turb_saturated": "turb_v", "turb_missing": "turb_v", "ph_saturated": "ph", "ph_missing": "ph"}
 
 
 def derive(df, calib, divider):
@@ -62,7 +75,7 @@ def derive(df, calib, divider):
     return df
 
 
-def fault_codes(df, use_ph, lim):
+def fault_codes(df, use_ph, lim, feats=None):
     t, tds, turb, ph = (df[c].to_numpy(float) for c in RAW_COLS)
     with np.errstate(invalid="ignore"):
         conds = [~np.isfinite(t) | (t < -50) | (t == 85.0),
@@ -74,6 +87,9 @@ def fault_codes(df, use_ph, lim):
         if use_ph:
             conds += [ph >= lim["adc_max_v"], ~np.isfinite(ph) | (ph <= lim["min_signal_v"])]
             codes += ["ph_saturated", "ph_missing"]
+    if feats is not None:
+        keep = [i for i, c in enumerate(codes) if FAULT_SENSOR[c] in feats]
+        conds, codes = [conds[i] for i in keep], [codes[i] for i in keep]
     return np.select(conds, codes, default="")
 
 
@@ -82,38 +98,56 @@ def derive_one(raw, calib, divider):
     return {k: float(df[k].iloc[0]) for k in RAW_COLS + ["tds_ppm", "ph"]}
 
 
-def fault_one(raw, use_ph, lim):
+def fault_one(raw, use_ph, lim, feats=None):
     df = pd.DataFrame([{c: raw.get(c, np.nan) for c in RAW_COLS}])
-    return str(fault_codes(df, use_ph, lim)[0])
+    return str(fault_codes(df, use_ph, lim, feats)[0])
 
 
 def read_run(path):
+    """Read a run CSV. A label edited later in the sidecar JSON overrides the label in the file."""
+    path = pathlib.Path(path)
     df = pd.read_csv(path)
     m = NAME_RE.match(path.name)
     if "run_id" not in df or df["run_id"].isna().all():
         df["run_id"] = int(m.group(1)) if m else -1
     if "label" not in df:
         df["label"] = m.group(2) if m else "unknown"
+    try:
+        meta = json.loads(path.with_suffix(".json").read_text(encoding="utf-8"))
+        if meta.get("label"):
+            df["label"] = meta["label"]
+    except (FileNotFoundError, json.JSONDecodeError):
+        pass
     return df
 
 
-def prepare_run(raw, cfg, use_ph, calib=None, divider=None, warmup=True):
-    """Raw CSV rows -> clean, median-filtered feature rows (+ fault counts)."""
+def sample_interval(ms):
+    """Median sample interval in seconds from a device-millisecond column (ignores resets/gaps)."""
+    d = np.diff(np.asarray(ms, float))
+    d = d[(d > 0) & (d < 10000)]
+    return float(np.median(d)) / 1000 if len(d) else 1.0
+
+
+def prepare_run(raw, cfg, use_ph, calib=None, divider=None, warmup=True, sensors=None):
+    """Raw CSV rows -> clean, median-filtered feature rows, fault counts and the sample interval (s)."""
+    from .models import timing   # local import: models does not depend on features
+
     det = cfg["detector"]
-    feats = feature_list(use_ph)
+    feats = feature_list(use_ph, sensors)
     df = derive(raw, calib or cfg["calib"], cfg["ph_divider"] if divider is None else divider)
     df["ms"] = pd.to_numeric(df.get("ms"), errors="coerce")
     df = df.dropna(subset=["ms"])
     if df.empty:
-        return df, {}
+        return df, {}, 1.0
+    dt = sample_interval(df["ms"])
     df["t_s"] = (df["ms"] - df["ms"].min()) / 1000.0
     if warmup:
         df = df[df["t_s"] >= det["warmup_s"]]
-    df["fault"] = fault_codes(df, use_ph, cfg["limits"])
+    df["fault"] = fault_codes(df, "ph" in feats, cfg["limits"], feats)
     faults = df["fault"][df["fault"] != ""].value_counts().to_dict()
     ok = (df["fault"] == "") & np.isfinite(df[feats].to_numpy(float)).all(axis=1)
     clean = df.loc[ok].copy()
-    win = det["median_win"]
+    win = timing(det, dt)["median_win"]
     clean[feats] = clean[feats].rolling(win, min_periods=win).median()
     clean = clean.dropna(subset=feats)
-    return clean, faults
+    return clean, faults, dt

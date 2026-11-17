@@ -29,13 +29,14 @@ def parse_data_line(line):
     try:
         if len(p) == 5:
             ms, t, tds, turb, ph = p
+            fmt = "v1"
         elif len(p) == 7:
             ms, _run, _label, t, tds, _ppm, turb = p
-            ph = "nan"
+            ph, fmt = "nan", "legacy"
         else:
             return None
         return {"ms": float(ms), "temp_c": _num(t), "tds_v": _num(tds),
-                "turb_v": _num(turb), "ph_pin_v": _num(ph)}
+                "turb_v": _num(turb), "ph_pin_v": _num(ph), "_fmt": fmt}
     except ValueError:
         return None
 
@@ -72,6 +73,10 @@ class Simulator:
         "vinegar": ("เติมน้ำส้มสายชู", {"ph_pin_v": 0.16, "tds_v": 0.04}),
         "hot_water": ("น้ำร้อน", {"temp_c": 15.0}),
         "probe_out": ("ยกหัววัดขึ้นจากน้ำ", {}),
+        # unsteady scenarios: (rate per second, cap), applied from the moment they are chosen
+        "ramp_salt": ("ค่อยๆ เติมเกลือ", {"ramp": {"tds_v": (0.0012, 0.40)}}),     # ~0.6 ppm/s
+        "ramp_starch": ("ค่อยๆ เติมแป้ง", {"ramp": {"turb_v": (-0.0015, -0.50)}}),
+        "pulse": ("หยดเกลือเข้มข้นครั้งเดียว", {"pulse": {"tds_v": 0.30}}),
     }
 
     def __init__(self):
@@ -84,12 +89,24 @@ class Simulator:
         if name not in self.SCENARIOS:
             raise ValueError(f"ไม่รู้จักสถานการณ์ {name}")
         self.name = name
+        self.since = 0
+        self.ramp_base = dict(self.off)
 
     def sample(self):
         self.ms += 1000
-        target = self.SCENARIOS[self.name][1]
-        for k in self.off:
-            self.off[k] += (target.get(k, 0.0) - self.off[k]) * 0.25
+        spec = self.SCENARIOS[self.name][1]
+        self.since = getattr(self, "since", 0) + 1
+        if "ramp" in spec:
+            base = getattr(self, "ramp_base", self.off)
+            for k, (rate, cap) in spec["ramp"].items():
+                v = base.get(k, 0.0) + rate * self.since
+                self.off[k] = max(v, cap) if rate < 0 else min(v, cap)
+        elif "pulse" in spec:
+            for k in self.off:
+                self.off[k] = spec["pulse"].get(k, 0.0) if self.since <= 2 else self.off[k] * 0.5
+        else:
+            for k in self.off:
+                self.off[k] += (spec.get(k, 0.0) - self.off[k]) * 0.25
         g = random.gauss
         temp = self.base["temp_c"] + self.off["temp_c"] + g(0, 0.03)
         tds = self.base["tds_v"] + self.off["tds_v"] + 0.0008 * self.off["temp_c"] + g(0, 0.003)

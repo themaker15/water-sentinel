@@ -23,9 +23,15 @@ DEFAULT_CONFIG = {
     "active_model": "mspc",
     "http_port": 8000,
     # Remote access (phone). Needs a PIN; restart the app after changing "enabled".
-    "remote": {"enabled": False, "pin": "", "allowed_hosts": []},
+    "remote": {"enabled": False, "pin": "", "allowed_hosts": [],
+               # viewer link for presentations: tunnelled visitors may look without a PIN but change nothing
+               "public_view": False, "public_url": ""},
     # Token an ESP32 on WiFi must send (header X-Token) to POST readings to /api/ingest.
     "ingest_token": "",
+    "session_gap_min": 10,       # runs further apart than this count as a new batch of water
+    "auto_snapshot": True,       # save 2 min before to 5 min after every alarm as an unlabeled run
+    "link_timeout_s": 60,        # alert when no sensor data arrives for this long while monitoring
+    "stream_log_days": 14,       # keep logs/stream-YYYYMMDD.csv for this many days
     "calib": {
         "tds_offset_v": 0.142,   # TDS pin voltage with the probe dry in air
         "tds_k": 1.0,            # known ppm / measured ppm in a standard solution
@@ -35,11 +41,23 @@ DEFAULT_CONFIG = {
     # smallest change per sensor that counts as meaningful (stops tiny steady noise looking huge)
     "floors": {"temp_c": 1.5, "tds_ppm": 5.0, "turb_v": 0.02, "ph": 0.1},
     "detector": {
-        "warmup_s": 60, "median_win": 5, "ewma_lambda": 0.3, "persist": 3,
+        # all times in seconds, so 1 s and 2.3 s firmware behave the same; ewma_lambda is per 1 s
+        "warmup_s": 60, "median_s": 5, "ewma_lambda": 0.3, "persist_s": 3,
         "release": 0.8, "quantile": 0.995, "margin": 1.25, "min_sigma": 3.0,
+        # drift early warning (CUSUM per sensor, in z*seconds; see drift.py)
+        "cusum_k": 0.5, "cusum_h_min": 8.0, "cusum_margin": 1.5,
     },
+    # per-model hyperparameters (tuning tab); see models.py
+    "model_params": {"pca": {"var_target": 0.90}, "iforest": {"n_estimators": 200},
+                     "ocsvm": {"nu": 0.01, "gamma": "scale"}, "lof": {"n_neighbors": 20}},
+    # turbidity shown in NTU (display only, models stay on volts); see turbidity.py
+    "turbidity": {"ntu_display": True, "v_clear": None, "t_clear": None, "noise_v": 0.003,
+                  "temp_coeff": -0.0022, "curve": "generic_vendor", "points": []},
+    # what the last training used (None = every usable run, sensors from use_ph, all models); see datasets.py
+    "training": {"dataset": None, "files": None, "sensors": None, "models": None},
     "alerts": {
-        "sound": True, "browser": True, "notify_recovery": True, "notify_fault": False,
+        "sound": True, "browser": True, "notify_recovery": True, "notify_fault": False, "notify_drift": False,
+        "notify_cause": False,
         "cooldown_s": 60, "ntfy_server": "https://ntfy.sh", "ntfy_topic": "",
         "telegram_token": "", "telegram_chat_id": "", "line_token": "", "line_user_id": "",
     },

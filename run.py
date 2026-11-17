@@ -69,6 +69,7 @@ def main():
     try:
         uvicorn.run(app, host=host, port=port, log_level="warning")
     finally:
+        app.state.tunnel.stop()
         hub.shutdown()
 
 

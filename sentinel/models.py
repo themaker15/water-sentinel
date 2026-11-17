@@ -1,4 +1,5 @@
 """Anomaly detectors and the shared scoring pipeline (smoothing, threshold, persistence)."""
+import math
 import time
 
 import numpy as np
@@ -28,7 +29,17 @@ def fit_gaussian(X, floors):
     return mu, cov
 
 
-class MSPC:
+class Params:
+    """Hyperparameters from config.json -> model_params.<key> (unknown keys are ignored)."""
+
+    def __init__(self, **params):
+        self.params = params
+
+    def p(self, name, default):
+        return self.params.get(name, default) if hasattr(self, "params") else default
+
+
+class MSPC(Params):
     key, name, ewma = "mspc", "MSPC (Robust Mahalanobis + EWMA)", True
 
     def fit(self, X, floors):
@@ -42,7 +53,7 @@ class MSPC:
         return np.einsum("ij,jk,ik->i", d, self.P, d)
 
 
-class PCAMonitor:
+class PCAMonitor(Params):
     key, name, ewma = "pca", "PCA (Hotelling T² + Q)", False
 
     def fit(self, X, floors):
@@ -51,7 +62,7 @@ class PCAMonitor:
         Z = self.st.transform(X)
         p = X.shape[1]
         ratio = PCA().fit(Z).explained_variance_ratio_
-        k = int(np.clip(np.searchsorted(np.cumsum(ratio), 0.90) + 1, 1, p - 1))
+        k = int(np.clip(np.searchsorted(np.cumsum(ratio), float(self.p("var_target", 0.90))) + 1, 1, p - 1))
         self.pca = PCA(n_components=k).fit(Z)
         self.eig = np.maximum(self.pca.explained_variance_, 1e-9)
         t2, q = self._tq(Z)
@@ -70,7 +81,7 @@ class PCAMonitor:
         return np.maximum(t2 / self.t2u, q / self.qu)
 
 
-class SklearnNovelty:
+class SklearnNovelty(Params):
     ewma = False
 
     def fit(self, X, floors):
@@ -90,7 +101,7 @@ class IForest(SklearnNovelty):
 
     def make(self, n):
         from sklearn.ensemble import IsolationForest
-        return IsolationForest(n_estimators=200, random_state=0)
+        return IsolationForest(n_estimators=int(self.p("n_estimators", 200)), random_state=0)
 
     def raw(self, Z):
         return self.est.score_samples(Z)
@@ -101,7 +112,8 @@ class OCSVM(SklearnNovelty):
 
     def make(self, n):
         from sklearn.svm import OneClassSVM
-        return OneClassSVM(nu=0.01, gamma="scale")
+        g = self.p("gamma", "scale")
+        return OneClassSVM(nu=float(self.p("nu", 0.01)), gamma=g if g in ("scale", "auto") else float(g))
 
     def raw(self, Z):
         return self.est.decision_function(Z)
@@ -112,7 +124,7 @@ class LOF(SklearnNovelty):
 
     def make(self, n):
         from sklearn.neighbors import LocalOutlierFactor
-        return LocalOutlierFactor(n_neighbors=max(2, min(20, n - 1)), novelty=True)
+        return LocalOutlierFactor(n_neighbors=max(2, min(int(self.p("n_neighbors", 20)), n - 1)), novelty=True)
 
     def raw(self, Z):
         return self.est.score_samples(Z)
@@ -122,6 +134,21 @@ MODELS = [MSPC, PCAMonitor, IForest, OCSVM, LOF]
 
 
 MODEL_NAMES = {m.key: m.name for m in MODELS}
+
+
+def timing(det, dt):
+    """Turn time-based detector settings into per-sample values for a sample interval `dt` seconds.
+
+    median_s / persist_s are seconds and ewma_lambda is defined for 1-second sampling, so the
+    detector behaves the same whether the firmware sends a sample every 1 s or every 2.3 s.
+    """
+    dt = min(max(float(dt or 1.0), 0.05), 30.0)
+    lam1 = float(det.get("ewma_lambda", 0.3))
+    win = max(1, int(round(det.get("median_s", 5) / dt)))
+    if win >= 2 and win % 2 == 0:
+        win += 1          # an even median window averages the step it should reject
+    persist = max(1, math.ceil(det.get("persist_s", 3) / dt - 1e-9))   # never shorter than asked
+    return {"dt": dt, "median_win": win, "persist": persist, "lam": 1.0 - (1.0 - lam1) ** dt}
 
 
 def ewma(x, lam):
@@ -149,30 +176,37 @@ def alarm_states(e, thr, persist, release):
     return out
 
 
-def smoothed_score(model, X, det):
+def alarms(ratio, det, dt):
+    """Persistence + hysteresis on a normalised score (threshold = 1)."""
+    return alarm_states(ratio, 1.0, timing(det, dt)["persist"], det.get("release", 0.8))
+
+
+def smoothed_score(model, X, det, dt=1.0):
     s = model.score(X)
-    return ewma(s, det["ewma_lambda"]) if model.ewma else s
+    return ewma(s, timing(det, dt)["lam"]) if model.ewma else s
 
 
-def fit_calibrated(cls, parts, floors, det):
-    """Fit on all normal runs in `parts`; set the threshold from scores on runs the model did NOT see.
+def fit_calibrated(cls, groups, floors, det, params=None):
+    """Fit on every normal run; set the threshold from scores on data the model did NOT see.
 
-    With 3+ runs each run is scored by a model trained on the others (cross-validated threshold),
-    so the threshold includes cup-to-cup variation. With fewer runs it falls back to in-sample.
-    The threshold is placed `margin` times beyond the reference quantile, measured from the median,
-    which works for any score scale (positive, negative or bounded).
+    `groups` is a list of groups, each a list of (X, dt) runs. A group is one session (one batch of
+    water) when sessions are known, otherwise one run. With 3+ groups each group is scored by a model
+    trained on the others (cross-validated threshold), so the threshold includes cup-to-cup variation.
+    With fewer groups it falls back to in-sample. The threshold is placed `margin` times beyond the
+    reference quantile, measured from the median, which works for any score scale.
     """
     t0 = time.perf_counter()
-    m = cls().fit(np.vstack(parts), floors)
+    params = params or {}
+    m = cls(**params).fit(np.vstack([X for g in groups for X, _ in g]), floors)
     fit_ms = (time.perf_counter() - t0) * 1000
-    if len(parts) >= 3:
-        ref = []
-        for j in range(len(parts)):
-            mj = cls().fit(np.vstack([p for i, p in enumerate(parts) if i != j]), floors)
-            ref.append(smoothed_score(mj, parts[j], det))
-        ref = np.concatenate(ref)
+    ref = []
+    if len(groups) >= 3:
+        for j in range(len(groups)):
+            mj = cls(**params).fit(np.vstack([X for i, g in enumerate(groups) if i != j for X, _ in g]), floors)
+            ref += [smoothed_score(mj, X, det, d) for X, d in groups[j]]
     else:
-        ref = smoothed_score(m, np.vstack(parts), det)
+        ref = [smoothed_score(m, X, det, d) for g in groups for X, d in g]
+    ref = np.concatenate(ref)
     med = float(np.median(ref))
     qv = float(np.quantile(ref, det["quantile"]))
     thr = med + det["margin"] * (qv - med)
@@ -183,6 +217,6 @@ def fit_calibrated(cls, parts, floors, det):
     return m, thr, med, fit_ms
 
 
-def normalized(model, X, thr, med, det):
+def normalized(model, X, thr, med, det, dt=1.0):
     """Score rescaled so 0 = typical normal and 1 = alarm threshold, comparable across models."""
-    return (smoothed_score(model, X, det) - med) / (thr - med)
+    return (smoothed_score(model, X, det, dt) - med) / (thr - med)

@@ -10,16 +10,21 @@ from collections import deque
 
 import numpy as np
 
-from . import alerts
+from . import alerts, explorer, turbidity
 from .config import DATA_DIR, DEFAULT_CONFIG, LOG_DIR, MODEL_DIR, deep_merge, load_config, save_config
-from .features import NAME_RE, derive_one, tds_ppm
+from .datasets import (delete_dataset, load_datasets, normalize_selection, save_dataset, selection_from_cfg,
+                       selection_use_ph)
+from .features import derive_one, tds_ppm
 from .live import LiveMonitor
 from .models import MODEL_NAMES
+from .runs import UNLABELED, list_runs, load_meta, save_meta
 from .sources import SourceThread, Simulator
-from .training import TrainError, embedding, load_bundle, train
+from . import tuning
+from .training import TrainError, check_selection, data_fingerprint, embedding, load_bundle, train
 
 SECRET_KEYS = {("alerts", "telegram_token"), ("alerts", "line_token"), ("remote", "pin"), ("ingest_token",)}
 MASK = "••••"
+_STORED = object()      # "train with the selection stored in config.json"
 
 
 def clean(o):
@@ -32,7 +37,16 @@ def clean(o):
         return [clean(v) for v in o]
     if isinstance(o, np.generic):
         return clean(o.item())
+    if isinstance(o, np.ndarray):
+        return clean(o.tolist())
     return o
+
+
+RUN_HEADER = ["pc_time", "ms", "run_id", "label", "temp_c", "tds_v", "turb_v", "ph_pin_v"]
+
+
+def _fmt_num(v):
+    return "nan" if v is None or not isinstance(v, (int, float)) or not math.isfinite(v) else round(v, 4)
 
 
 def known_only(defaults, patch):
@@ -64,9 +78,16 @@ class Hub:
         self.rec_last = None
         self.det_out = {"status": "no_model"}
         self.prev_alarm = False
+        self.prev_drift = False
         self.last_fault = None
+        self.last_likely = None            # experimental cause guess of the latest alarm (causes.py)
         self.training = False
-        self._row_cache = {}
+        self.raw_buf = deque(maxlen=4000)  # (device-seconds, raw) for snapshots, > 1 h at 1 s
+        self.dev_t = 0.0                   # running device time from ms deltas (survives resets)
+        self.pending_snap = None
+        self.firmware = None
+        self.link_lost = False
+        self._stream = None
         self.bundle = None
         self.live = None
         self.load_model()
@@ -77,6 +98,19 @@ class Hub:
     # ------------------------------------------------------------ lifecycle
     def start(self):
         self.source.start()
+        threading.Thread(target=self._watchdog, daemon=True, name="link-watchdog").start()
+
+    def _watchdog(self):
+        """Raise an event (and a push alert) when sensor data stops while monitoring."""
+        while not self.source.stopping:
+            time.sleep(2)
+            with self.lock:
+                limit = self.cfg.get("link_timeout_s", 60)
+                silent = self.last_rx and time.time() - self.last_rx > limit
+                if silent and self.cfg["monitor_on"] and not self.link_lost:
+                    self.link_lost = True
+                    self._event("link_lost", f"ไม่มีข้อมูลจากเซนเซอร์เกิน {limit} วินาที: {self.link['msg']}",
+                                notify=True)
 
     def shutdown(self):
         self.source.stopping = True
@@ -108,8 +142,17 @@ class Hub:
                 self.link = {"ok": True, "port": port, "msg": {"sim": "โหมดจำลอง (ไม่ได้ใช้บอร์ดจริง)",
                                                               "wifi": "รับข้อมูลผ่าน WiFi"}.get(source, f"รับข้อมูลจาก {port}")}
             d = derive_one(raw, self.cfg["calib"], self.cfg["ph_divider"])
-            self.latest = {**d, "time": now, "source": source}
+            self.latest = {**d, "time": now, "source": source,
+                           "turb": turbidity.convert(d["turb_v"], d["temp_c"], self.cfg["turbidity"])}
             self.raw_recent.append(raw)
+            if self.link_lost:
+                self.link_lost = False
+                self._event("link_restored", "ได้รับข้อมูลจากเซนเซอร์อีกครั้ง", notify=self.cfg["monitor_on"])
+            fmt = raw.get("_fmt")
+            if fmt and fmt != self.firmware:
+                self.firmware = fmt
+            self._advance_clock(raw)
+            self.raw_buf.append((self.dev_t, raw))
             self._record(raw)
             if self.live and self.cfg["monitor_on"]:
                 out = self.live.update(raw)
@@ -117,6 +160,8 @@ class Hub:
                 out = {"status": "off" if self.live else "no_model"}
             self._transitions(out)
             self.det_out = out
+            self._stream_write(now, raw, out)
+            self._snapshot_tick()
             self.history.append({"t": round(now, 2), "temp_c": d["temp_c"], "tds_ppm": d["tds_ppm"],
                                  "turb_v": d["turb_v"], "ph": d["ph"] if self.cfg["use_ph"] else None,
                                  "ratio": out.get("ratio"), "status": out["status"]})
@@ -129,12 +174,30 @@ class Hub:
             self.last_fault = out["fault"]
         else:
             self.last_fault = None
+        drifting = out["status"] == "drifting"
+        if drifting and not self.prev_drift:
+            trend = (out.get("drift") or {}).get("trend") or []
+            msg = ", ".join(t["text"] + (f" (ถึงเกณฑ์เตือนใน ~{t['eta_min']:g} นาที)" if t.get("eta_min") else "")
+                            for t in trend[:2]) or "ค่ากำลังเปลี่ยนทีละน้อย"
+            self._event("drift", f"เริ่มเปลี่ยนทีละน้อย: {msg}", notify=a.get("notify_drift", False))
+        if out["status"] in ("normal", "drifting", "anomaly"):
+            self.prev_drift = drifting
         alarm = bool(out.get("in_alarm"))
+        if out.get("likely"):
+            self.last_likely = {**out["likely"], "time": time.time(), "active": True}
         if alarm and not self.prev_alarm:
             cause = ", ".join(c["text"] for c in out.get("cause") or []) or "ค่าหลายเซนเซอร์เปลี่ยนพร้อมกัน"
+            lk = out.get("likely")
+            if a.get("notify_cause") and lk and lk["verdict"] in ("match", "ambiguous"):
+                cause += f" · (ทดลอง) {lk['headline']}"
             self._event("anomaly", f"ตรวจพบน้ำผิดปกติ: {cause}", notify=True)
-        elif self.prev_alarm and not alarm and out["status"] == "normal":
+            if self.cfg.get("auto_snapshot", True) and not self.pending_snap:
+                self.pending_snap = {"start": self.dev_t - 120, "end": self.dev_t + 300, "event_t": self.dev_t,
+                                     "cause": cause}
+        elif self.prev_alarm and not alarm and out["status"] in ("normal", "drifting"):
             self._event("recovered", "น้ำกลับสู่สภาวะปกติ", notify=a["notify_recovery"])
+            if self.last_likely:
+                self.last_likely["active"] = False
         self.prev_alarm = alarm
 
     def _event(self, kind, msg, notify=False):
@@ -157,8 +220,12 @@ class Hub:
             if now - self.last_sent.get(kind, 0) >= a["cooldown_s"]:
                 self.last_sent[kind] = now
                 title = {"anomaly": "⚠️ Water Sentinel: น้ำผิดปกติ", "recovered": "✅ Water Sentinel: กลับปกติ",
-                         "fault": "🔧 Water Sentinel: เซนเซอร์มีปัญหา"}.get(kind, "Water Sentinel")
-                threading.Thread(target=self._send, args=(ev, title, dict(a), kind != "recovered"),
+                         "fault": "🔧 Water Sentinel: เซนเซอร์มีปัญหา",
+                         "link_lost": "🔌 Water Sentinel: ขาดการเชื่อมต่อ",
+                         "link_restored": "🔌 Water Sentinel: เชื่อมต่อแล้ว",
+                         "drift": "📈 Water Sentinel: ค่ากำลังเปลี่ยน"}.get(kind, "Water Sentinel")
+                urgent = kind in ("anomaly", "fault", "link_lost")
+                threading.Thread(target=self._send, args=(ev, title, dict(a), urgent),
                                  daemon=True).start()
         return ev
 
@@ -177,13 +244,16 @@ class Hub:
             if self.live:
                 self.live.reset()
             self.prev_alarm = False
-            self.det_out = {"status": "starting" if on else "off", "left": self.cfg["detector"]["median_win"]}
+            self.last_likely = None
+            self.det_out = {"status": "starting" if on else "off", "left": None}
             self._event("info", "เปิดโหมดเฝ้าระวัง" if on else "ปิดโหมดเฝ้าระวัง")
 
     def set_active_model(self, key):
         if key not in MODEL_NAMES:
             raise ValueError("ไม่รู้จักโมเดลนี้")
         with self.lock:
+            if self.bundle and key not in self.bundle["models"]:
+                raise ValueError("โมเดลนี้ไม่ได้อยู่ในการเทรนครั้งล่าสุด: เลือกโมเดลนี้ตอนเทรนก่อน")
             self.cfg["active_model"] = key
             save_config(self.cfg)
             if self.live:
@@ -191,8 +261,15 @@ class Hub:
                 self.prev_alarm = False
             self._event("info", f"ใช้โมเดล {MODEL_NAMES[key]}")
 
-    def train(self, use_ph):
+    def train(self, use_ph, force=False, selection=_STORED):
+        """selection: dict from the picker/API, None = every usable run (v1.0 behaviour), omitted = the stored one."""
         with self.lock:
+            sel = selection_from_cfg(self.cfg) if selection is _STORED else normalize_selection(selection)
+            use_ph = selection_use_ph(sel, bool(use_ph))
+            if not force and self.bundle and \
+                    self.bundle["meta"].get("data_hash") == data_fingerprint(self.cfg, use_ph, selection=sel):
+                return {"ok": True, "unchanged": True, "log": ["ข้อมูลและการตั้งค่าเหมือนการเทรนครั้งก่อน ไม่ต้องเทรนใหม่"],
+                        "best": self.bundle["meta"]["best"]}
             if self.training:
                 raise ValueError("กำลังเทรนอยู่")
             if self.rec:
@@ -201,13 +278,16 @@ class Hub:
             cfg = copy.deepcopy(self.cfg)
         logs = []
         try:
-            report = train(cfg, use_ph=bool(use_ph), log=logs.append)
+            report = train(cfg, use_ph=use_ph, log=logs.append, selection=sel)
             with self.lock:
-                self.cfg["use_ph"] = bool(use_ph)
+                self.cfg["use_ph"] = "ph" in report["meta"]["features"]
+                self.cfg["training"] = {"dataset": sel["dataset"] if sel else None, "files": sel["files"] if sel else None,
+                                        "sensors": sel["sensors"] if sel else None, "models": sel["models"] if sel else None}
                 self.cfg["active_model"] = report["meta"]["best"]
                 save_config(self.cfg)
                 self.load_model()
-                self._event("info", f"เทรนเสร็จ: ใช้ {MODEL_NAMES[report['meta']['best']]}")
+                self._event("info", f"เทรนเสร็จ: ใช้ {MODEL_NAMES[report['meta']['best']]}"
+                            + (f" (ชุดข้อมูล {sel['dataset']})" if sel and sel["dataset"] else ""))
             return {"ok": True, "log": logs, "best": report["meta"]["best"]}
         except TrainError as e:
             return {"ok": False, "error": str(e), "log": logs}
@@ -215,52 +295,239 @@ class Hub:
             with self.lock:
                 self.training = False
 
+    def train_check(self, selection):
+        """Guard rails for the training picker (nothing is fitted)."""
+        with self.lock:
+            cfg = copy.deepcopy(self.cfg)
+        sel = normalize_selection(selection)
+        return check_selection(cfg, selection_use_ph(sel, cfg["use_ph"]), sel)
+
+    # ------------------------------------------------------------ named datasets
+    def datasets(self):
+        with self.lock:
+            cur = selection_from_cfg(self.cfg)
+        return {"datasets": load_datasets(DATA_DIR), "current": cur}
+
+    def dataset_save(self, name, selection, note=""):
+        return save_dataset(name, selection, note, DATA_DIR)
+
+    def dataset_delete(self, name):
+        delete_dataset(name, DATA_DIR)
+
     def embedding(self, method):
         return embedding(method)
 
+    # ------------------------------------------------------------ tuning
+    def _model_use_ph(self):
+        return self.bundle["meta"]["use_ph"] if self.bundle else self.cfg["use_ph"]
+
+    def tune_preview(self, key, settings):
+        with self.lock:
+            cfg = copy.deepcopy(self.cfg)
+        return tuning.preview(cfg, self._model_use_ph(), key, settings or {})
+
+    def tune_suggest(self):
+        with self.lock:
+            cfg = copy.deepcopy(self.cfg)
+        return tuning.suggest_floors(cfg, self._model_use_ph())
+
+    def tune_apply(self, settings, retrain=True):
+        settings = {k: v for k, v in (settings or {}).items() if k in ("detector", "floors", "model_params")}
+        self.update_config(settings)
+        with self.lock:
+            self._event("info", "ปรับค่าตัวตรวจจับแล้ว" + (" กำลังเทรนใหม่" if retrain else ""))
+        return self.train(self._model_use_ph(), force=True) if retrain else {"ok": True}   # keeps the stored selection
+
+    def tune_restore(self, index):
+        hist = tuning.load_history(MODEL_DIR)
+        if not -len(hist) <= int(index) < len(hist):
+            raise ValueError("ไม่พบประวัติการตั้งค่านี้")
+        h = hist[int(index)]
+        return self.tune_apply({"detector": h["detector"], "floors": h["floors"],
+                                "model_params": h.get("model_params") or {}}, retrain=True)
+
     # ------------------------------------------------------------ recording
     def runs(self):
-        out = []
-        for fp in sorted(DATA_DIR.glob("*.csv")):
-            st = fp.stat()
-            key = (st.st_mtime_ns, st.st_size)
-            cached = self._row_cache.get(fp.name)
-            if not cached or cached[0] != key:
-                with open(fp, encoding="utf-8", errors="replace") as f:
-                    header = f.readline()
-                    n = sum(1 for _ in f)
-                cached = (key, n, "ph_pin_v" in header)
-                self._row_cache[fp.name] = cached
-            m = NAME_RE.match(fp.name)
-            out.append({"file": fp.name, "run": int(m.group(1)) if m else None,
-                        "label": m.group(2) if m else "?", "time": m.group(3) if m else "",
-                        "rows": cached[1], "has_ph": cached[2]})
-        return out
+        return list_runs(DATA_DIR, self.cfg.get("session_gap_min", 10))
 
-    def next_run(self):
-        return max([r["run"] for r in self.runs() if r["run"] is not None] or [0]) + 1
+    def _run_path(self, file):
+        path = DATA_DIR / str(file)
+        if path.parent != DATA_DIR or path.suffix != ".csv" or not path.exists():
+            raise ValueError("ไม่พบไฟล์รอบนี้")
+        return path
 
-    def start_record(self, run, label, minutes):
+    def run_detail(self, file, with_score=True):
+        path = self._run_path(file)
+        with self.lock:
+            cfg, bundle = copy.deepcopy(self.cfg), self.bundle
+            key = self.live.key if self.live else "mspc"
+        d = explorer.run_detail(path, cfg, bundle, key, with_score)
+        d["session"] = {r["file"]: r["session"] for r in self.runs()}.get(file)
+        return clean(d)
+
+    def stats_csv(self, files):
+        if not files or len(files) > 40:
+            raise ValueError("เลือกรอบ 1-40 รอบ")
+        return explorer.stats_csv([self.run_detail(f, with_score=False) for f in files])
+
+    def archive_run(self, file):
+        with self.lock:
+            if self.rec and self.rec["file"] == file:
+                raise ValueError("กำลังเก็บข้อมูลรอบนี้อยู่")
+            name = explorer.archive_run(DATA_DIR, file)
+            self._event("info", f"ย้าย {file} ไปที่ data/{explorer.ARCHIVE}/ (ไม่ได้ลบ)")
+        return name
+
+    def restore_run(self, file):
+        with self.lock:
+            name = explorer.restore_run(DATA_DIR, file)
+            self._event("info", f"นำ {name} กลับจากที่เก็บ")
+        return name
+
+    def archived(self):
+        return explorer.list_archived(DATA_DIR)
+
+    def next_run(self, runs=None):
+        runs = self.runs() if runs is None else runs
+        return max([r["run"] for r in runs if r["run"] is not None] or [0]) + 1
+
+    def update_run(self, file, patch):
+        path = DATA_DIR / file
+        if path.parent != DATA_DIR or path.suffix != ".csv" or not path.exists():
+            raise ValueError("ไม่พบไฟล์รอบนี้")
+        allowed = {k: patch[k] for k in ("label", "note", "excluded", "new_water") if k in patch}
+        meta = save_meta(path, allowed)
+        with self.lock:
+            self._event("info", f"แก้ข้อมูลรอบ {file}: " + ", ".join(f"{k}={v}" for k, v in allowed.items()))
+        return meta
+
+    def start_record(self, run, label, minutes, note="", new_water=False):
         label = (label or "").strip()
-        if not re.fullmatch(r"[A-Za-z0-9_\-]+", label):
+        if not re.fullmatch(r"[A-Za-z0-9_\-]+", label) or label == UNLABELED:
             raise ValueError("label ใช้ได้เฉพาะ a-z 0-9 _ - (ห้ามเว้นวรรค)")
         run, minutes = int(run), float(minutes)
         if run < 1 or not (0.1 <= minutes <= 240):
             raise ValueError("เลขรอบต้อง ≥ 1 และเวลา 0.1-240 นาที")
-        if any(r["run"] == run and r["rows"] > 0 for r in self.runs()):
+        runs = self.runs()
+        if any(r["run"] == run and r["rows"] > 0 for r in runs):
             raise ValueError(f"รอบที่ {run} มีข้อมูลแล้ว: แก้วน้ำใหม่ใช้เลขรอบใหม่")
+        warnings = []
         with self.lock:
             if self.rec:
                 raise ValueError("กำลังเก็บข้อมูลอยู่แล้ว")
             if time.time() - self.last_rx > 5:
                 raise ValueError("ยังไม่มีข้อมูลจากเซนเซอร์ ตรวจการเชื่อมต่อก่อน")
+            if label == "normal" and self.prev_alarm:
+                warnings.append("ระบบกำลังเตือนว่าน้ำผิดปกติ แต่คุณบันทึกเป็น normal: ตรวจว่าน้ำเป็นน้ำปกติจริง")
+            if runs and not new_water and label == "normal":
+                last = runs[-1]
+                end = time.mktime(time.strptime(last["start"], "%Y-%m-%dT%H:%M:%S")) + last["duration_s"]
+                if (time.time() - end) / 60 <= self.cfg.get("session_gap_min", 10):
+                    warnings.append(f"รอบนี้จะนับเป็นน้ำเดียวกับรอบ {last['run']} (session {last['session']}) "
+                                    "ถ้าเปลี่ยนน้ำแล้ว ให้ติ๊ก \"เปลี่ยนน้ำใหม่แล้ว\"")
             path = DATA_DIR / f"run{run:03d}_{label}_{time.strftime('%Y%m%d-%H%M%S')}.csv"
             f = open(path, "w", newline="", encoding="utf-8")
             w = csv.writer(f)
-            w.writerow(["pc_time", "ms", "run_id", "label", "temp_c", "tds_v", "turb_v", "ph_pin_v"])
+            w.writerow(RUN_HEADER)
+            meta = {"source": "record", "note": note or "", "new_water": bool(new_water),
+                    "firmware": self.firmware, "recorded_during_alarm": bool(self.prev_alarm),
+                    "calib": self._calib_snapshot()}
+            save_meta(path, meta)
             self.rec = {"run": run, "label": label, "minutes": minutes, "file": path.name, "fh": f, "w": w,
                         "rows": 0, "elapsed": 0.0, "last_ms": None, "started": time.time()}
             self._event("info", f"เริ่มเก็บข้อมูล รอบ {run} ({label}) {minutes:g} นาที")
+        return [w for w in warnings if w]
+
+    def _calib_snapshot(self):
+        c = self.cfg["calib"]
+        return {"tds_offset_v": c["tds_offset_v"], "tds_k": c["tds_k"], "ph_divider": self.cfg["ph_divider"]}
+
+    # ------------------------------------------------------------ device clock, stream log, snapshots
+    def _advance_clock(self, raw):
+        ms = raw.get("ms")
+        last = getattr(self, "_last_ms", None)
+        if last is not None and ms is not None:
+            d = ms - last
+            self.dev_t += d / 1000 if 0 < d < 10000 else 1.0
+        self._last_ms = ms
+
+    def _stream_write(self, now, raw, out):
+        """Append every sample to logs/stream-YYYYMMDD.csv so nothing seen live is ever lost."""
+        try:
+            day = time.strftime("%Y%m%d", time.localtime(now))
+            if not self._stream or self._stream[0] != day:
+                if self._stream:
+                    self._stream[1].close()
+                path = LOG_DIR / f"stream-{day}.csv"
+                new = not path.exists()
+                fh = open(path, "a", newline="", encoding="utf-8")
+                w = csv.writer(fh)
+                if new:
+                    w.writerow(["pc_time", "ms", "temp_c", "tds_v", "turb_v", "ph_pin_v", "status", "ratio"])
+                self._stream = (day, fh, w, 0)
+                self._prune_stream_logs()
+            day, fh, w, n = self._stream
+            w.writerow([time.strftime("%Y-%m-%dT%H:%M:%S", time.localtime(now)), raw.get("ms"),
+                        *[_fmt_num(raw.get(k)) for k in ("temp_c", "tds_v", "turb_v", "ph_pin_v")],
+                        out.get("status"), _fmt_num(out.get("ratio"))])
+            n += 1
+            if n % 10 == 0:
+                fh.flush()
+            self._stream = (day, fh, w, n)
+        except OSError:
+            pass
+
+    def _prune_stream_logs(self):
+        keep = self.cfg.get("stream_log_days", 14)
+        cutoff = time.time() - keep * 86400
+        for f in LOG_DIR.glob("stream-*.csv"):
+            try:
+                if f.stat().st_mtime < cutoff:
+                    f.unlink()
+            except OSError:
+                pass
+
+    def _snapshot_tick(self):
+        p = self.pending_snap
+        if p and self.dev_t >= p["end"]:
+            self.pending_snap = None
+            rows = [(t, r) for t, r in self.raw_buf if p["start"] <= t <= p["end"]]
+            path = self._write_snapshot(rows, UNLABELED, {
+                "source": "auto", "note": f"บันทึกอัตโนมัติรอบเตือน: {p['cause']}",
+                "markers": [{"t_s": round(p["event_t"] - rows[0][0], 1), "text": "ระบบเตือน"}] if rows else []})
+            if path:
+                self._event("info", f"บันทึกข้อมูลช่วงเตือนไว้แล้ว ({path.name}): ไปที่แท็บเก็บข้อมูลเพื่อตั้งชื่อเงื่อนไข")
+
+    def _write_snapshot(self, rows, label, meta):
+        if len(rows) < 5:
+            return None
+        run = self.next_run()
+        began = time.time() - (self.dev_t - rows[0][0])     # file name carries the start time, like recordings
+        path = DATA_DIR / f"run{run:03d}_{label}_{time.strftime('%Y%m%d-%H%M%S', time.localtime(began))}.csv"
+        with open(path, "w", newline="", encoding="utf-8") as f:
+            w = csv.writer(f)
+            w.writerow(RUN_HEADER)
+            for _, raw in rows:
+                w.writerow(["", raw.get("ms"), run, label,
+                            *[_fmt_num(raw.get(k)) for k in ("temp_c", "tds_v", "turb_v", "ph_pin_v")]])
+        save_meta(path, {**meta, "firmware": self.firmware, "calib": self._calib_snapshot()})
+        return path
+
+    def save_last(self, minutes, label):
+        """Save the last N minutes seen live as a run (e.g. after testing in monitor mode)."""
+        label = (label or UNLABELED).strip()
+        if not re.fullmatch(r"[A-Za-z0-9_\-]+", label):
+            raise ValueError("label ใช้ได้เฉพาะ a-z 0-9 _ - (ห้ามเว้นวรรค)")
+        minutes = float(minutes)
+        if not 0.2 <= minutes <= 60:
+            raise ValueError("เลือกได้ 0.2-60 นาที")
+        with self.lock:
+            rows = [(t, r) for t, r in self.raw_buf if t >= self.dev_t - minutes * 60]
+            path = self._write_snapshot(rows, label, {"source": "snapshot", "note": f"บันทึกย้อนหลัง {minutes:g} นาที"})
+            if not path:
+                raise ValueError("ยังมีข้อมูลสดไม่พอ")
+            self._event("info", f"บันทึกย้อนหลัง {minutes:g} นาทีเป็น {path.name}")
+            return path.name
 
     def _record(self, raw):
         r = self.rec
@@ -272,12 +539,37 @@ class Hub:
             r["elapsed"] += d / 1000 if 0 < d < 10000 else 1.0
         r["last_ms"] = ms
         r["w"].writerow([time.strftime("%Y-%m-%dT%H:%M:%S"), ms, r["run"], r["label"],
-                         *[("nan" if v is None or not math.isfinite(v) else round(v, 4))
-                           for v in (raw.get("temp_c"), raw.get("tds_v"), raw.get("turb_v"), raw.get("ph_pin_v"))]])
+                         *[_fmt_num(raw.get(k)) for k in ("temp_c", "tds_v", "turb_v", "ph_pin_v")]])
         r["fh"].flush()
         r["rows"] += 1
         if r["elapsed"] >= r["minutes"] * 60:
             self._finish_record("ครบเวลา")
+
+    def mark(self, text, kind="note", dose=None):
+        """Event marker during a recording (e.g. "added 1 mL stock"), stored in the run's sidecar."""
+        text = (text or "").strip()[:120]
+        if not text:
+            raise ValueError("ใส่ข้อความเหตุการณ์ก่อน")
+        if kind not in ("note", "dose", "stir", "probe"):
+            raise ValueError("ประเภทเหตุการณ์ไม่ถูกต้อง")
+        if dose not in (None, ""):
+            dose = float(dose)
+            kind = "dose"
+        else:
+            dose = None
+        with self.lock:
+            r = self.rec
+            if not r:
+                raise ValueError("บันทึกเหตุการณ์ได้ระหว่างกำลังเก็บข้อมูลเท่านั้น")
+            path = DATA_DIR / r["file"]
+            markers = load_meta(path).get("markers", [])
+            m = {"t_s": round(r["elapsed"], 1), "text": text, "kind": kind}
+            if dose is not None:
+                m["dose"] = dose
+            markers.append(m)
+            save_meta(path, {"markers": markers})
+            self._event("info", f"เหตุการณ์ที่ {m['t_s']:.0f} s ของรอบ {r['run']}: {text}")
+            return m
 
     def stop_record(self):
         with self.lock:
@@ -290,6 +582,76 @@ class Hub:
         self.rec = None
         self.rec_last = {"run": r["run"], "label": r["label"], "rows": r["rows"], "file": r["file"], "why": why}
         self._event("info", f"เก็บรอบ {r['run']} ({r['label']}) เสร็จ: {r['rows']} แถว ({why})")
+
+    # ------------------------------------------------------------ turbidity (NTU display)
+    def turb_info(self):
+        with self.lock:
+            return clean(turbidity.info(copy.deepcopy(self.cfg["turbidity"]), self.latest))
+
+    def _recent_raw(self, seconds, minimum):
+        rows = [r for t, r in self.raw_buf if t >= self.dev_t - seconds]
+        if not self.last_rx or time.time() - self.last_rx > 5 or len(rows) < minimum:
+            raise ValueError("ยังไม่มีข้อมูลสดพอ (ต้องมีข้อมูลต่อเนื่องจากเซนเซอร์อย่างน้อย %d ค่า)" % minimum)
+        return rows
+
+    def _turb_median(self, seconds, minimum):
+        rows = self._recent_raw(seconds, minimum)
+        v = np.array([r.get("turb_v", np.nan) for r in rows], float)
+        t = np.array([r.get("temp_c", np.nan) for r in rows], float)
+        lim = self.cfg["limits"]
+        ok = np.isfinite(v) & (v > lim["min_signal_v"]) & (v < lim["adc_max_v"])
+        if ok.sum() < minimum:
+            raise ValueError("สัญญาณความขุ่นผิดปกติ (อ่านไม่ได้หรือเต็มสเกล) ตรวจสายเซนเซอร์ก่อน")
+        med = float(np.median(v[ok]))
+        mad = float(1.4826 * np.median(np.abs(v[ok] - med)))
+        tt = float(np.nanmedian(t)) if np.isfinite(t).any() else None
+        return med, tt, mad
+
+    def turb_set_clear(self, seconds=30):
+        """Clear-water reference = median of the last 30 s. Sets v_clear, t_clear and the noise estimate."""
+        with self.lock:
+            med, tt, mad = self._turb_median(seconds, 8)
+            c = self.cfg["turbidity"]
+            c.update(v_clear=round(med, 4), t_clear=None if tt is None else round(tt, 2), noise_v=round(max(mad, 0.002), 4))
+            save_config(self.cfg)
+            self._event("info", f"ตั้งค่าน้ำใสอ้างอิงความขุ่น: {med:.3f} V" + (f" ที่ {tt:.1f} °C" if tt is not None else ""))
+        return self.turb_info()
+
+    def turb_add_point(self, ntu):
+        """A user standard: the NTU the person reads from a reference meter, with the volts measured right now."""
+        ntu = float(ntu)
+        if not 0 <= ntu <= 5000:
+            raise ValueError("NTU ต้องอยู่ระหว่าง 0 ถึง 5000")
+        with self.lock:
+            c = self.cfg["turbidity"]
+            if not c.get("v_clear"):
+                raise ValueError("ตั้งค่าน้ำใสอ้างอิงก่อน (จุ่มหัววัดในน้ำใส แล้วกด \"ตั้งเป็นน้ำใส\")")
+            med, tt, _ = self._turb_median(10, 4)
+            pts = [p for p in c["points"] if abs(p[0] - ntu) > 1e-9] + [[ntu, round(med, 4), None if tt is None else round(tt, 2)]]
+            if len(pts) > 12:
+                raise ValueError("จุดมาตรฐานมีได้ไม่เกิน 12 จุด")
+            trial = {**c, "points": pts, "curve": "user_points"}
+            turbidity.curve(trial)                       # raises ValueError for an impossible set of points
+            c.update(points=pts, curve="user_points")
+            save_config(self.cfg)
+            self._event("info", f"เพิ่มจุดมาตรฐานความขุ่น {ntu:g} NTU = {med:.3f} V")
+        return self.turb_info()
+
+    def turb_delete_point(self, index):
+        with self.lock:
+            c = self.cfg["turbidity"]
+            if not 0 <= int(index) < len(c["points"]):
+                raise ValueError("ไม่พบจุดนี้")
+            c["points"].pop(int(index))
+            if not c["points"] and c["curve"] == "user_points":
+                c["curve"] = "generic_vendor"
+            save_config(self.cfg)
+        return self.turb_info()
+
+    def turb_tempco(self):
+        with self.lock:
+            gap, warm = self.cfg.get("session_gap_min", 10), self.cfg["detector"]["warmup_s"]
+        return turbidity.fit_temp_coeff(DATA_DIR, warm, session_gap_min=gap)
 
     # ------------------------------------------------------------ calibration
     def calibrate(self, action, value=None):
@@ -338,6 +700,9 @@ class Hub:
 
     def update_config(self, patch):
         patch = known_only(DEFAULT_CONFIG, patch)
+        patch.pop("training", None)                  # only a real training run sets this
+        tuning.validate(patch)
+        turbidity.validate(patch)
         for path in SECRET_KEYS:           # masked value sent back unchanged -> keep the stored secret
             d = patch
             for k in path[:-1]:
@@ -380,20 +745,35 @@ class Hub:
                 "active_name": self.live.name if self.live else None,
                 "best": m["best"], "protocol": m["protocol"], "normal_runs": m["normal_runs"],
                 "anomaly_runs": m["anomaly_runs"], "mismatch": m["use_ph"] != self.cfg["use_ph"],
-                "names": MODEL_NAMES}
+                "n_sessions": m.get("n_sessions"), "interval_s": m.get("interval_s"),
+                "dataset": m.get("dataset"), "n_files": len(m.get("files", [])), "test_runs": m.get("test_runs", []),
+                "models": m.get("models"),
+                "new_runs": self._new_runs(m), "names": MODEL_NAMES}
+
+    def _new_runs(self, meta):
+        """Usable runs recorded after this model was trained (None for models from v1.0)."""
+        if "files" not in meta:
+            return None
+        used = set(meta.get("seen") or meta["files"])      # runs deliberately left out of the selection are not "new"
+        return sum(1 for r in self.runs() if r["rows"] > 0 and not r["excluded"]
+                   and r["label"] != UNLABELED and r["file"] not in used)
 
     def state(self, since=0.0):
         with self.lock:
             now = time.time()
             r = self.rec
             rec = None if not r else {"run": r["run"], "label": r["label"], "rows": r["rows"],
-                                      "elapsed": round(r["elapsed"], 1), "minutes": r["minutes"], "file": r["file"]}
+                                      "elapsed": round(r["elapsed"], 1), "minutes": r["minutes"], "file": r["file"],
+                                      "markers": load_meta(DATA_DIR / r["file"]).get("markers", [])}
             return clean({
                 "now": now,
                 "link": {**self.link, "age": (now - self.last_rx) if self.last_rx else None},
                 "sim": self.port_pref() == "SIM",
+                "firmware": self.firmware, "link_lost": self.link_lost,
+                "snapshot_pending": bool(self.pending_snap),
                 "sim_scenario": self.source.sim.name,
                 "latest": self.latest,
+                "likely": self.last_likely,
                 "use_ph": self.cfg["use_ph"],
                 "monitor_on": self.cfg["monitor_on"],
                 "detector": self.det_out,
