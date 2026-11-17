@@ -81,7 +81,9 @@ main { max-width: 1200px; margin: 0 auto; padding: 20px; }
 .tile .k { color: var(--muted); font-size: 13px; display: flex; justify-content: space-between; gap: 6px; }
 .tile .v { font-size: 30px; font-weight: 800; letter-spacing: -.5px; margin-top: 2px; font-variant-numeric: tabular-nums; }
 .tile .u { font-size: 14px; color: var(--muted); font-weight: 600; margin-left: 3px; }
-.tile canvas { width: 100% !important; height: 40px !important; margin-top: 6px; }
+.tile canvas { width: 100% !important; height: 44px !important; margin-top: 6px; }
+.spcap { font-size: 11px; color: var(--muted); display: flex; justify-content: space-between; gap: 6px; margin-top: 3px; }
+.spcap b { color: var(--text); font-weight: 600; }
 .z { font-size: 12px; padding: 1px 7px; border-radius: 999px; background: var(--idle-bg); color: var(--muted); }
 .z.hot { background: var(--bad-bg); color: var(--bad); }
 .gauge { height: 14px; border-radius: 999px; background: var(--panel-2); border: 1px solid var(--line); position: relative; overflow: hidden; }

@@ -28,7 +28,8 @@ const int PH_PIN   = 35;
 // pH and TDS probes in the same water can disturb each other (both put current through the water).
 // Optional fix: power the TDS board from a GPIO and switch it off while pH is read.
 // Wire TDS "+" to the S pin of row D25 and set TDS_POWER_PIN = 25. Keep -1 to power it from V.
-const int TDS_POWER_PIN = -1;
+const int TDS_POWER_PIN = 25;
+const unsigned long TDS_EVERY_MS = 5000;   // switched TDS: read it only every 5 s, so pH sees quiet water most of the time
 
 const unsigned long INTERVAL_MS = 1000;
 
@@ -78,16 +79,22 @@ void loop() {
 
   float tdsV;
   if (TDS_POWER_PIN >= 0) {
-    digitalWrite(TDS_POWER_PIN, HIGH);
-    delay(150);                       // let the TDS board settle
-    tdsV = readVolts(TDS_PIN);
-    digitalWrite(TDS_POWER_PIN, LOW);
-    delay(80);                        // let the water relax before pH is read
+    static float lastTdsV = NAN;
+    static unsigned long lastTdsAt = 0;
+    if (isnan(lastTdsV) || now - lastTdsAt >= TDS_EVERY_MS) {
+      digitalWrite(TDS_POWER_PIN, HIGH);
+      delay(150);                     // let the TDS board settle
+      lastTdsV = readVolts(TDS_PIN);
+      digitalWrite(TDS_POWER_PIN, LOW);
+      lastTdsAt = now;
+      delay(600);                     // let the water relax before pH is read
+    }
+    tdsV = lastTdsV;                  // repeat the last TDS reading between measurements
   } else {
     tdsV = readVolts(TDS_PIN);
   }
   float turbV = readVolts(TURB_PIN);
-  float phV = readVolts(PH_PIN);
+  float phV = readVolts(PH_PIN, 128);   // more samples: pH is the noisiest channel
 
   Serial.print("DATA,");
   Serial.print(now);            Serial.print(",");

@@ -72,6 +72,10 @@ def derive(df, calib, divider):
         df[c] = pd.to_numeric(df[c], errors="coerce")
     df["tds_ppm"] = tds_ppm(df["tds_v"], df["temp_c"], calib["tds_offset_v"], calib["tds_k"])
     df["ph"] = ph_value(df["ph_pin_v"], divider, calib["ph_points"])
+    off = float(calib.get("ph_multi_offset", 0.0) or 0.0)
+    if off:
+        wet = (df["tds_v"] > float(calib.get("ph_wet_tds_v", 0.2))).to_numpy()
+        df["ph"] = np.where(wet, df["ph"] - off, df["ph"])
     return df
 
 

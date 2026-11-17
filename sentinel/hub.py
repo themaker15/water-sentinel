@@ -14,13 +14,14 @@ from . import alerts, explorer, turbidity
 from .config import DATA_DIR, DEFAULT_CONFIG, LOG_DIR, MODEL_DIR, deep_merge, load_config, save_config
 from .datasets import (delete_dataset, load_datasets, normalize_selection, save_dataset, selection_from_cfg,
                        selection_use_ph)
-from .features import derive_one, tds_ppm
+from .features import derive_one, ph_value, tds_ppm
 from .live import LiveMonitor
 from .models import MODEL_NAMES
 from .runs import UNLABELED, list_runs, load_meta, save_meta
 from .sources import SourceThread, Simulator
 from . import tuning
-from .training import TrainError, check_selection, data_fingerprint, embedding, load_bundle, train
+from .training import (TrainError, check_selection, data_fingerprint, embedding, list_snapshots, load_bundle,
+                       restore_snapshot, train)
 
 SECRET_KEYS = {("alerts", "telegram_token"), ("alerts", "line_token"), ("remote", "pin"), ("ingest_token",)}
 MASK = "••••"
@@ -294,6 +295,28 @@ class Hub:
         finally:
             with self.lock:
                 self.training = False
+
+    def snapshots(self):
+        cur = self.bundle["meta"].get("created") if self.bundle else None
+        return {"snapshots": list_snapshots(), "active_created": cur,
+                "active_features": self.bundle["meta"]["features"] if self.bundle else None}
+
+    def use_snapshot(self, sid):
+        """Put an earlier training back as the live model."""
+        with self.lock:
+            if self.training:
+                raise ValueError("กำลังเทรนอยู่")
+            restore_snapshot(sid)
+            b = load_bundle()
+            if b:
+                self.cfg["use_ph"] = "ph" in b["meta"]["features"]
+                self.cfg["active_model"] = b["meta"]["best"]
+                save_config(self.cfg)
+            self.load_model()
+            if self.bundle:
+                n = len(self.bundle["meta"]["features"])
+                self._event("info", f"เปลี่ยนเป็นโมเดลที่เทรนเมื่อ {self.bundle['meta'].get('created')} ({n} เซนเซอร์)")
+        return self.snapshots()
 
     def train_check(self, selection):
         """Guard rails for the training picker (nothing is fitted)."""
@@ -675,6 +698,12 @@ class Hub:
                 if raw_ppm < 5:
                     raise ValueError("ค่า TDS ต่ำเกินไป: จุ่มหัววัดในสารละลายมาตรฐานก่อน")
                 c["tds_k"] = round(target / raw_ppm, 4)
+            elif action == "ph_multi_offset":
+                # all probes in water whose true pH is `value` (checked with the pH probe alone): store the shift
+                if med("tds_v") <= c.get("ph_wet_tds_v", 0.2):
+                    raise ValueError("หัววัด TDS ไม่ได้อยู่ในน้ำ: จุ่มหัววัดครบทุกตัวก่อน")
+                raw_ph = float(ph_value(med("ph_pin_v"), self.cfg["ph_divider"], c["ph_points"]))
+                c["ph_multi_offset"] = round(raw_ph - float(value), 3)
             elif action == "ph_point":
                 slot, ph = int(value["slot"]), float(value["ph"])
                 po = med("ph_pin_v") * self.cfg["ph_divider"]

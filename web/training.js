@@ -3,7 +3,7 @@
    Loaded before app.js; uses its globals at call time. */
 
 const TR_SENS = ["temp_c", "tds_ppm", "turb_v", "ph"];
-const TR_MODELS = [["mspc", "MSPC (ล็อก: ใช้อธิบายสาเหตุและ drift)"], ["pca", "PCA"], ["iforest", "Isolation Forest"], ["ocsvm", "One-Class SVM"], ["lof", "LOF"]];
+const TR_MODELS = [["mspc", "MSPC (ล็อก: ใช้อธิบายสาเหตุและ drift)"], ["pca", "PCA"], ["iforest", "Isolation Forest"], ["ocsvm", "One-Class SVM"], ["lof", "LOF"], ["threshold", "Simple threshold (baseline)"]];
 const TR_ROLE_TXT = { train: "train: เทรน", test: "test: กันไว้ทดสอบ", anomaly: "anomaly: ทดสอบ", exclude: "ไม่ใช้" };
 const TRSTATE = () => ({ runs: [], datasets: {}, files: {}, sensors: [], models: [], dataset: null, base: null, touched: false,
   label: "", session: "", q: "", onlyNew: false, onlyPh: false, check: null, seq: 0, inited: false, missing: 0 });
@@ -251,6 +251,7 @@ async function doTrain(force) {
     S.cfg = await api("/api/config");
     const msg = $("trainMsg").innerHTML;
     await loadReport();
+    loadSnaps();
     await initTrainPicker(true);
     $("trainMsg").innerHTML = msg;
     const f2 = $("btnForce"); if (f2) f2.onclick = () => doTrain(true);
@@ -298,4 +299,73 @@ function drawCompare() {
     <div class="table-wrap"><table><thead><tr><th>โมเดล</th>${cols.map((c) => `<th class="num">${c[1]} A</th><th class="num">B</th>`).join("")}</tr></thead>
       <tbody>${keys.map((k) => `<tr><td>${esc((names[k] || k).split(" (")[0])}</td>${cols.map(([m, , better, f]) => cell((A.metrics[k] || {})[m], (B.metrics[k] || {})[m], better, f)).join("")}</tr>`).join("")}</tbody></table></div>
     <p class="legend-note">▲▼ = B เปลี่ยนจาก A · เขียว = ดีขึ้น แดง = แย่ลง · "–" = ไม่ได้วัด (เช่นไม่มีรอบ test)</p>`;
+}
+
+
+/* ---------------------------------------------------------------- saved models (pick an earlier training) */
+async function loadSnaps() {
+  let d;
+  try { d = await api("/api/snapshots"); } catch (e) { return; }
+  const list = d.snapshots || [];
+  $("snapCard").hidden = !list.length;
+  if (!list.length) return;
+  const names = { temp_c: "อุณหภูมิ", tds_ppm: "TDS", turb_v: "ความขุ่น", ph: "pH" };
+  const activeKey = (d.active_features || []).join(",");
+  let activeShown = false;
+  const rows = list.map((s) => {
+    const f = s.features || [];
+    const m = (s.metrics || {})[s.best] || {};
+    const isActive = !activeShown && s.created === d.active_created && f.join(",") === activeKey;
+    if (isActive) activeShown = true;
+    const btn = isActive ? `<span class="pill" style="background:var(--ok-bg);color:var(--ok);border-color:transparent">✓ ใช้อยู่</span>`
+      : (isViewer() ? "" : `<button class="btn sm" data-snap="${esc(s.id)}">ใช้โมเดลนี้</button>`);
+    return `<tr${isActive ? ' style="background:var(--ok-bg)"' : ""}><td>${esc(s.created || s.id)}</td>
+      <td><b>${f.length}</b> เซนเซอร์<div class="hint" style="margin:0">${f.map((x) => names[x] || x).join(", ")}</div></td>
+      <td>${esc(((S.report && S.report.model_names) || {})[s.best] || (s.best || "").toUpperCase())}</td>
+      <td>${pct(m.false_alarm)}</td><td>${pct(m.detection)}</td><td>${m.auc == null ? "–" : fmt(m.auc, 3)}</td>
+      <td>${s.n_sessions ?? "–"} / ${s.n_files ?? "–"}</td><td>${btn}</td></tr>`;
+  }).join("");
+  $("snapBody").innerHTML = `<div style="overflow-x:auto"><table><thead><tr><th>เทรนเมื่อ</th><th>เซนเซอร์</th><th>โมเดลที่ดีที่สุด</th>
+    <th>เตือนผิด</th><th>จับได้</th><th>AUC</th><th>session / ไฟล์</th><th></th></tr></thead><tbody>${rows}</tbody></table></div>`;
+  $("snapBody").querySelectorAll("[data-snap]").forEach((b) => (b.onclick = async () => {
+    b.disabled = true;
+    try {
+      await api("/api/snapshots/use", { id: b.dataset.snap });
+      toast("เปลี่ยนโมเดลแล้ว");
+      S.tileKeys = [];
+      await loadReport(); loadSnaps(); refreshModelSel();
+    } catch (e) { toast(e.message, 5000); b.disabled = false; }
+  }));
+}
+
+
+/* header dropdown: switch between saved trainings from any tab */
+async function refreshModelSel() {
+  const sel = $("modelSel");
+  if (!sel || isViewer()) { if (sel) sel.hidden = true; return; }
+  let d;
+  try { d = await api("/api/snapshots"); } catch (e) { sel.hidden = true; return; }
+  const list = d.snapshots || [];
+  if (list.length < 2) { sel.hidden = true; return; }
+  const activeKey = (d.active_features || []).join(",");
+  let activeId = null;
+  for (const s of list) if (!activeId && s.created === d.active_created && (s.features || []).join(",") === activeKey) activeId = s.id;
+  sel.innerHTML = (activeId ? "" : `<option value="" selected>โมเดลปัจจุบัน</option>`) + list.map((s) => {
+    const m = (s.metrics || {})[s.best] || {};
+    const t = (s.created || s.id).slice(5);   // MM-DD HH:MM
+    return `<option value="${esc(s.id)}"${s.id === activeId ? " selected" : ""}>${(s.features || []).length} เซนเซอร์ · ${esc(t)} · จับได้ ${pct(m.detection)}</option>`;
+  }).join("");
+  sel.hidden = false;
+  sel.onchange = async () => {
+    if (!sel.value) return;
+    sel.disabled = true;
+    try {
+      await api("/api/snapshots/use", { id: sel.value });
+      toast("เปลี่ยนโมเดลแล้ว");
+      S.tileKeys = [];
+      if (typeof loadReport === "function") loadReport();
+      if (typeof loadSnaps === "function") loadSnaps();
+    } catch (e) { toast(e.message, 5000); }
+    sel.disabled = false;
+  };
 }

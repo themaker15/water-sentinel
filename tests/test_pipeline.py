@@ -66,7 +66,7 @@ def test_record_train_monitor_alert(client):
     assert rep["meta"]["protocol"].startswith("leave-one-session-out") and rep["meta"]["n_sessions"] == 3
     mspc = rep["models"]["mspc"]
     assert mspc["false_alarm"] <= 0.05 and mspc["detection"] >= 0.8
-    assert set(rep["models"]) == {"mspc", "pca", "iforest", "ocsvm", "lof"}
+    assert set(rep["models"]) == {"mspc", "pca", "iforest", "ocsvm", "lof", "threshold"}
 
     c.post("/api/model", json={"key": "mspc"})
     c.post("/api/sim", json={"scenario": "normal"})
@@ -440,7 +440,7 @@ def test_training_selection_roles_sensors_models_datasets(client):
     assert c.post("/api/train", json={"use_ph": False, "force": True}).json()["ok"]
     z = rep()
     assert z["meta"]["dataset"] is None and z["meta"]["features"] == ["temp_c", "tds_ppm", "turb_v"]
-    assert set(z["models"]) == {"mspc", "pca", "iforest", "ocsvm", "lof"} and z["meta"]["test_runs"] == []
+    assert set(z["models"]) == {"mspc", "pca", "iforest", "ocsvm", "lof", "threshold"} and z["meta"]["test_runs"] == []
     assert c.get("/api/datasets").json()["current"] is None
     c.post("/api/datasets/delete", json={"name": "bench subset"})
     assert "bench subset" not in c.get("/api/datasets").json()["datasets"]
@@ -566,3 +566,22 @@ def test_edge_sim_matches_model_baseline(client):
         if i >= 200 and r["alarm"]:
             salt_alarm = True
     assert not normal_alarm and salt_alarm
+
+
+def test_saved_models_can_be_switched_back(client):
+    """Every training is kept; picking an earlier one (3 vs 4 sensors) makes it the live model again."""
+    c = client
+    runs = [r for r in c.get("/api/runs").json()["runs"] if r["rows"] > 0 and not r["excluded"] and r["label"] != "unlabeled"]
+    files = {r["file"]: ("train" if r["label"] == "normal" else "anomaly") for r in runs}
+    assert c.post("/api/train", json={"files": files, "sensors": ["temp_c", "tds_ppm", "turb_v", "ph"], "force": True}).json()["ok"]
+    assert c.post("/api/train", json={"files": files, "sensors": ["temp_c", "tds_ppm", "turb_v"], "force": True}).json()["ok"]
+    snaps = c.get("/api/snapshots").json()
+    assert len(snaps["snapshots"]) >= 2 and snaps["active_features"] == ["temp_c", "tds_ppm", "turb_v"]
+    four = next(s for s in snaps["snapshots"] if s["features"] == ["temp_c", "tds_ppm", "turb_v", "ph"])
+    assert four["metrics"]["mspc"]["detection"] is not None
+    r = c.post("/api/snapshots/use", json={"id": four["id"]}).json()
+    assert r["ok"] and r["active_features"] == ["temp_c", "tds_ppm", "turb_v", "ph"]
+    st = c.get("/api/state").json()
+    assert st["model"]["features"] == ["temp_c", "tds_ppm", "turb_v", "ph"] and st["use_ph"] is True
+    assert c.get("/api/report").json()["meta"]["features"] == ["temp_c", "tds_ppm", "turb_v", "ph"]
+    assert c.post("/api/snapshots/use", json={"id": "../../etc"}).status_code >= 400

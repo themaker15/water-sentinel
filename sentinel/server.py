@@ -223,6 +223,14 @@ def create_app(hub):
         hub.set_active_model(str(payload.get("key")))
         return {"ok": True}
 
+    @app.get("/api/snapshots")
+    def snapshots():
+        return {"ok": True, **hub.snapshots()}
+
+    @app.post("/api/snapshots/use")
+    def use_snapshot(payload: dict = Body(...)):
+        return {"ok": True, **hub.use_snapshot(str(payload.get("id", "")))}
+
     @app.post("/api/sim")
     def sim(payload: dict = Body(...)):
         hub.sim_scenario(str(payload.get("scenario")))

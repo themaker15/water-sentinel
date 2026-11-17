@@ -18,6 +18,8 @@
     <span class="pill" id="linkPill"><span class="dot" id="linkDot"></span><span id="linkText">กำลังเชื่อมต่อ...</span></span>
     <span class="pill warn" id="fwPill" hidden></span>
     <span class="pill" id="modelPill">ไม่มีโมเดล</span>
+    <select class="pill admin-only" id="modelSel" title="เลือกโมเดลที่เทรนไว้" hidden
+      style="width:auto;padding:5px 30px 5px 11px;cursor:pointer;font:inherit;font-size:13px"></select>
   </div>
   <nav class="tabs" id="tabs">
     <button data-v="live" class="on">ภาพรวม</button>
@@ -175,6 +177,11 @@
 <section class="view" id="v-model">
   <div class="grid">
     <div class="card span-12 admin-only" id="trPicker"><p class="hint">กำลังโหลด...</p></div>
+    <div class="card span-12" id="snapCard" hidden>
+      <h2>โมเดลที่เทรนไว้</h2>
+      <p class="hint">ทุกครั้งที่เทรน ระบบเก็บโมเดลไว้ให้ เลือกโมเดลเก่ากลับมาใช้ได้ทันที (เช่น สลับ 3 เซนเซอร์ / 4 เซนเซอร์) ไม่ต้องเทรนใหม่</p>
+      <div id="snapBody"></div>
+    </div>
     <div class="span-12" id="modelResults"></div>
     <div class="card span-12" id="cmpCard" hidden>
       <div class="row"><div><h2>เทียบการเทรนสองครั้ง</h2><p class="hint" style="margin:0">เลือกการเทรนสองครั้งจากประวัติ เพื่อดูว่าเปลี่ยนข้อมูล/เซนเซอร์/โมเดลแล้วผลต่างกันอย่างไร</p></div>

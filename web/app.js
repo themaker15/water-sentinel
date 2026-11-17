@@ -16,7 +16,7 @@ const SENSORS = {
 };
 const LABELS = ["normal", "salt_lvl1", "salt_lvl2", "baking_soda_lvl1", "starch_lvl1", "hot_water", "vinegar_lvl1"];
 const PALETTE = ["#ef4444", "#f59e0b", "#a855f7", "#3b82f6", "#ec4899", "#14b8a6", "#f97316", "#6366f1", "#06b6d4", "#84cc16"];
-const MODEL_COLORS = { mspc: "#22c55e", pca: "#3b82f6", iforest: "#f59e0b", ocsvm: "#a855f7", lof: "#ec4899" };
+const MODEL_COLORS = { mspc: "#22c55e", pca: "#3b82f6", iforest: "#f59e0b", ocsvm: "#a855f7", lof: "#ec4899", threshold: "#94a3b8" };
 
 const S = { st: null, lastT: 0, hist: [], charts: {}, report: null, cfg: null, lastEvent: null, audio: null,
             recWas: false, runDirty: false, tileKeys: [], scZoom: true, emb: { m: "pca", c: "label", data: null },
@@ -80,6 +80,7 @@ function showTab(v) {
   document.querySelectorAll(".view").forEach((s) => s.classList.toggle("on", s.id === "v-" + v));
   if (v === "record") loadRuns();
   if (v === "model" || v === "viz") loadReport();
+  if (v === "model" && typeof loadSnaps === "function") loadSnaps();
   if (v === "model" && !isViewer()) initTrainPicker(true);
   if (v === "settings") { loadConfig(); loadTurb(); loadShare(); }
   try { history.replaceState(null, "", "#" + v); } catch (e) { /* ignore */ }
@@ -95,13 +96,19 @@ function buildTiles(usePh) {
     <div class="v"><span id="v-${k}">–</span><span class="u" id="u-${k}">${SENSORS[k].unit}</span></div>
     <div class="trend" id="tr-${k}"></div>
     <div class="tsub" id="sub-${k}"></div>
-    <canvas id="sp-${k}"></canvas></div>`).join("");
+    <div class="spwrap"><canvas id="sp-${k}"></canvas></div><div class="spcap" id="cap-${k}"></div></div>`).join("");
   keys.forEach((k) => mkChart("sp-" + k, {
     type: "line",
     data: { labels: [], datasets: [{ data: [], borderColor: css("--accent"), borderWidth: 1.6, pointRadius: 0, tension: .3,
       fill: true, backgroundColor: alpha("#38bdf8", 0.12) }] },
     options: { plugins: { legend: { display: false }, tooltip: { enabled: false } },
-      scales: { x: { display: false }, y: { display: false } } },
+      maintainAspectRatio: false, layout: { padding: { top: 6, right: 4 } },
+      scales: {
+        x: { display: true, grid: { display: false }, border: { color: alpha("#94a3b8", 0.5) },
+          ticks: { maxTicksLimit: 3, maxRotation: 0, font: { size: 10 }, color: css("--muted") } },
+        y: { display: true, grid: { color: alpha("#94a3b8", 0.18) }, border: { color: alpha("#94a3b8", 0.5) },
+          ticks: { maxTicksLimit: 4, font: { size: 10 }, color: css("--muted"),
+            callback: (v) => fmt(v, k === "tds_ppm" ? 0 : k === "turb_v" ? 3 : 2) } } } },
   }));
 }
 
@@ -180,7 +187,7 @@ function renderLive(st) {
     $("tr-" + k).textContent = tr && !stale ? (tr.rate_per_min > 0 ? "↗ " : "↘ ") + trendText(tr).replace(tr.text + " ", "") : "";
     const ch = S.charts["sp-" + k];
     const tail = S.hist.slice(-120);
-    ch.data.labels = tail.map((h) => h.t);
+    ch.data.labels = tail.map((h) => new Date(h.t * 1000).toLocaleTimeString("th-TH", { hour12: false }));
     ch.data.datasets[0].data = tail.map((h) => h[k]);
     // never stretch tiny steps (e.g. 0.0625 °C) to full height: show at least one "floor" of range
     const vals = tail.map((h) => h[k]).filter((v) => v != null && isFinite(v));
@@ -188,6 +195,8 @@ function renderLive(st) {
       const lo = Math.min(...vals), hi = Math.max(...vals), mid = (lo + hi) / 2;
       const span = Math.max(hi - lo, (S.cfg && S.cfg.floors[k]) || 0) * 1.1 || 1;
       ch.options.scales.y.min = mid - span / 2; ch.options.scales.y.max = mid + span / 2;
+      const dp = SENSORS[k].dp, u = k === "turb_v" ? "V" : SENSORS[k].unit;
+      $("cap-" + k).innerHTML = `<span>ต่ำสุด <b>${fmt(lo, dp)}</b> · สูงสุด <b>${fmt(hi, dp)}</b> ${u}</span><span>2 นาทีล่าสุด</span>`;
     }
     ch.update("none");
   }
@@ -328,6 +337,8 @@ function renderHeader(st) {
   else if (m.exists && m.new_runs) mp = `⚠ มีข้อมูลใหม่ ${m.new_runs} รอบที่ยังไม่ได้เทรน`;
   $("modelPill").textContent = mp;
   $("modelPill").classList.toggle("warn", !!(m.exists && (m.mismatch || m.new_runs)));
+  const key = m.exists ? m.created + "|" + (m.features || []).join(",") : "";
+  if (key !== S.modelSelKey && typeof refreshModelSel === "function") { S.modelSelKey = key; refreshModelSel(); }
   const fw = $("fwPill");
   fw.hidden = st.firmware !== "legacy";
   fw.textContent = "firmware เก่า (วัดทุก 2.3 s): แนะนำอัปโหลด water_sentinel.ino";

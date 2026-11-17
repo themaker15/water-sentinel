@@ -36,6 +36,11 @@ DEFAULT_CONFIG = {
         "tds_offset_v": 0.142,   # TDS pin voltage with the probe dry in air
         "tds_k": 1.0,            # known ppm / measured ppm in a standard solution
         "ph_points": [[6.86, 2.50], [4.01, 3.03]],  # [buffer pH, Po voltage]; defaults are uncalibrated
+        # with the other probes in the same water the pH reading shifts by a constant amount (ground path
+        # through the water). This is subtracted only while the TDS probe is wet (tds_v above ph_wet_tds_v),
+        # so a pH-only check (other probes out of the water) still uses the plain buffer calibration.
+        "ph_multi_offset": 0.0,
+        "ph_wet_tds_v": 0.2,
     },
     "limits": {"tds_dry_v": 0.16, "adc_max_v": 3.05, "min_signal_v": 0.02},
     # smallest change per sensor that counts as meaningful (stops tiny steady noise looking huge)

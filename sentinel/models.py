@@ -130,7 +130,19 @@ class LOF(SklearnNovelty):
         return self.est.score_samples(Z)
 
 
-MODELS = [MSPC, PCAMonitor, IForest, OCSVM, LOF]
+class Threshold(Params):
+    """Baseline: the classic one-sensor-at-a-time limit (largest robust |z| over the sensors)."""
+    key, name, ewma = "threshold", "Simple threshold (baseline)", False
+
+    def fit(self, X, floors):
+        self.st = Standardizer().fit(X, floors)
+        return self
+
+    def score(self, X):
+        return np.abs(self.st.transform(X)).max(axis=1)
+
+
+MODELS = [MSPC, PCAMonitor, IForest, OCSVM, LOF, Threshold]
 
 
 MODEL_NAMES = {m.key: m.name for m in MODELS}

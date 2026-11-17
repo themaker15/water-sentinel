@@ -17,7 +17,7 @@ from .config import DATA_DIR
 from .features import ALL_FEATURES
 
 ROLES = ("train", "test", "anomaly", "exclude")
-MODEL_KEYS = ("mspc", "pca", "iforest", "ocsvm", "lof")
+MODEL_KEYS = ("mspc", "pca", "iforest", "ocsvm", "lof", "threshold")
 NAME_OK = re.compile(r"[^\x00-\x1f\\/]{1,40}")
 
 

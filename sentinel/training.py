@@ -474,12 +474,66 @@ def train(cfg, use_ph=None, data_dir=DATA_DIR, out_dir=MODEL_DIR, log=print, sel
     (out_dir / "report.json").write_text(json.dumps(report, ensure_ascii=False), encoding="utf-8")
     for f in out_dir.glob("embed_*.json"):
         f.unlink()   # embeddings belong to the previous training
-    append_history(out_dir, meta, results)
+    snap = save_snapshot(out_dir)
+    append_history(out_dir, meta, results, snapshot=snap)
     log(f"โมเดลที่แนะนำ: {MODEL_NAMES[best]}  | บันทึกไว้ที่ {out_dir}")
     return report
 
 
-def append_history(out_dir, meta, results, keep=20):
+SNAP_DIR = "saved"
+
+
+def save_snapshot(out_dir, keep=15):
+    """Keep a copy of every trained model so an earlier one (e.g. 3 vs 4 sensors) can be put back in one click."""
+    import shutil
+    out_dir = pathlib.Path(out_dir)
+    sid = time.strftime("%Y%m%d-%H%M%S")
+    d = out_dir / SNAP_DIR / sid
+    n = 1
+    while d.exists():
+        n += 1
+        d = out_dir / SNAP_DIR / f"{sid}-{n}"
+    d.mkdir(parents=True)
+    for f in ("bundle.joblib", "report.json"):
+        shutil.copy2(out_dir / f, d / f)
+    snaps = sorted(p for p in (out_dir / SNAP_DIR).iterdir() if p.is_dir())
+    for old in snaps[:-keep]:
+        shutil.rmtree(old, ignore_errors=True)
+    return d.name
+
+
+def list_snapshots(out_dir=MODEL_DIR):
+    """Saved trainings, newest first, with what the UI needs to tell them apart."""
+    out_dir = pathlib.Path(out_dir)
+    try:
+        hist = {h.get("snapshot"): h for h in json.loads((out_dir / "history.json").read_text(encoding="utf-8")) if h.get("snapshot")}
+    except (FileNotFoundError, json.JSONDecodeError):
+        hist = {}
+    out = []
+    root = out_dir / SNAP_DIR
+    for d in sorted((root.iterdir() if root.exists() else []), reverse=True):
+        if not (d / "bundle.joblib").exists():
+            continue
+        h = hist.get(d.name, {})
+        out.append({"id": d.name, "created": h.get("created"), "features": h.get("sensors"), "use_ph": h.get("use_ph"),
+                    "best": h.get("best"), "n_sessions": h.get("n_sessions"), "n_files": h.get("n_files"),
+                    "metrics": h.get("metrics", {})})
+    return out
+
+
+def restore_snapshot(sid, out_dir=MODEL_DIR):
+    import shutil
+    out_dir = pathlib.Path(out_dir)
+    d = out_dir / SNAP_DIR / str(sid)
+    if "/" in str(sid) or "\\" in str(sid) or ".." in str(sid) or not (d / "bundle.joblib").exists():
+        raise TrainError("ไม่พบโมเดลที่บันทึกไว้นี้")
+    for f in ("bundle.joblib", "report.json"):
+        shutil.copy2(d / f, out_dir / f)
+    for f in out_dir.glob("embed_*.json"):
+        f.unlink()
+
+
+def append_history(out_dir, meta, results, keep=20, snapshot=None):
     """Settings + headline numbers of every training, so a good configuration can be restored."""
     path = pathlib.Path(out_dir) / "history.json"
     try:
@@ -488,7 +542,7 @@ def append_history(out_dir, meta, results, keep=20):
         hist = []
     hist.append({"created": meta["created"], "data_hash": meta["data_hash"], "use_ph": meta["use_ph"],
                  "detector": meta["detector"], "floors": meta["floors"], "model_params": meta["model_params"],
-                 "best": meta["best"], "n_sessions": meta["n_sessions"],
+                 "best": meta["best"], "n_sessions": meta["n_sessions"], "snapshot": snapshot,
                  "dataset": meta.get("dataset"), "n_files": len(meta["files"]), "sensors": meta.get("sensors"),
                  "models": meta.get("models"), "files_hash": meta.get("files_hash"), "roles": meta.get("roles"),
                  "metrics": {k: {m: r.get(m) for m in ("false_alarm", "detection", "auc", "delay_s", "test_false_alarm")}
