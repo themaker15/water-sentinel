@@ -133,7 +133,7 @@ const STATUS = {
 };
 /* Firmware v3 (from DUAL_SINCE) runs two models and packs them: field5 = score (4 sensors), field8 = score (3 sensors),
    field6 = status4 + 10*status3, field7 = driver4 + 10*driver3. Older rows hold only the 3-sensor model (field8 = z). */
-const DUAL_SINCE = new Date("2026-11-18T03:00:00Z").getTime();
+const DUAL_SINCE = new Date("2026-11-18T03:22:30Z").getTime();
 const DRIVER = { 1: "อุณหภูมิ", 2: "TDS", 3: "ความขุ่น", 4: "pH" };
 let view = 4;
 try { const v = +localStorage.getItem("ws_model"); if (v === 3 || v === 4) view = v; } catch (e) {}
