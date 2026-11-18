@@ -1,4 +1,4 @@
-// Water Sentinel EDGE firmware v2 - the ESP32 runs the MSPC detector itself.
+// Water Sentinel EDGE firmware v3 - the ESP32 runs two MSPC detectors itself (4-sensor main, 3-sensor backup).
 //
 //  sensors -> median -> Mahalanobis (MSPC) -> EWMA -> persistence/hysteresis -> alarm
 //          -> LED / buzzer, ThingSpeak (every 16 s), ntfy phone alert, USB "DATA," lines (app still works)
@@ -19,8 +19,8 @@
 #include <OneWire.h>
 #include <DallasTemperature.h>
 #include <math.h>
-#include "edge_model.h"
 #include "edge_types.h"
+#include "edge_model.h"
 #include "secrets.h"
 
 const int TEMP_PIN = 4, TDS_PIN = 32, TURB_PIN = 33, PH_PIN = 35;
@@ -49,30 +49,24 @@ void printValue(float v, int digits) {
   if (isnan(v)) Serial.print("nan"); else Serial.print(v, digits);
 }
 
-// ---------------------------------------------------------------- detector (EdgeDetector in C++)
+// ---------------------------------------------------------------- detectors (EdgeDetector in C++, one per model)
 const char* STATUS_NAME[4] = {"starting", "normal", "anomaly", "fault"};
 const char* SENSOR_NAME[4] = {"temperature", "TDS", "turbidity", "pH"};
 
+Det detMain, detAlt;                          // MAIN = 4-sensor model (drives the alarm), ALT = 3-sensor backup
 
-const int MAX_WIN = 31;
-float winBuf[MAX_WIN][EDGE_N];
-int winCount = 0, WIN = 5, PERSIST = 3;
-float LAM = 0.3f;
-bool ewmaInit = false, alarmState = false;
-float ewmaVal = 0;
-int aboveN = 0, belowN = 0;
-bool featOn[4] = {false, false, false, false};
-
-void detectorInit() {
-  for (int i = 0; i < EDGE_N; i++) featOn[EDGE_FEAT[i]] = true;
-  int win = (int)lroundf(EDGE_MEDIAN_S / DT_S);
+void detInit(Det& D, const EdgeModel* m) {
+  memset(&D, 0, sizeof(D));
+  D.m = m;
+  for (int i = 0; i < m->n; i++) D.featOn[m->feat[i]] = true;
+  int win = (int)lroundf(m->median_s / DT_S);
   if (win < 1) win = 1;
   if (win >= 2 && win % 2 == 0) win++;
   if (win > MAX_WIN) win = MAX_WIN;
-  WIN = win;
-  PERSIST = (int)ceilf(EDGE_PERSIST_S / DT_S - 1e-6f);
-  if (PERSIST < 1) PERSIST = 1;
-  LAM = 1.0f - powf(1.0f - EDGE_EWMA_LAMBDA, DT_S);
+  D.win = win;
+  D.persist = (int)ceilf(m->persist_s / DT_S - 1e-6f);
+  if (D.persist < 1) D.persist = 1;
+  D.lam = 1.0f - powf(1.0f - m->ewma_lambda, DT_S);
 }
 
 float tdsPpm(float v, float t) {
@@ -83,69 +77,71 @@ float tdsPpm(float v, float t) {
   return (133.42f * vc * vc * vc - 255.86f * vc * vc + 857.39f * vc) * 0.5f * EDGE_TDS_K;
 }
 
-float phValue(float pinV) {
-  if (!featOn[3] || fabsf(EDGE_PH_V2 - EDGE_PH_V1) < 1e-6f) return NAN;
-  return EDGE_PH_P1 + (EDGE_PH_P2 - EDGE_PH_P1) / (EDGE_PH_V2 - EDGE_PH_V1) * (pinV * EDGE_PH_DIVIDER - EDGE_PH_V1);
+// pH from the pin voltage; the other probes in the water shift it, so subtract the measured offset
+// while the TDS probe is wet (same as features.py on the laptop).
+float phValue(float pinV, float tdsV) {
+  if (isnan(pinV) || fabsf(EDGE_PH_V2 - EDGE_PH_V1) < 1e-6f) return NAN;
+  float ph = EDGE_PH_P1 + (EDGE_PH_P2 - EDGE_PH_P1) / (EDGE_PH_V2 - EDGE_PH_V1) * (pinV * EDGE_PH_DIVIDER - EDGE_PH_V1);
+  if (!isnan(tdsV) && tdsV > EDGE_PH_WET_TDS_V) ph -= EDGE_PH_MULTI_OFFSET;
+  return ph;
 }
 
-const char* faultCode(float t, float tdsV, float turbV, float phV) {
-  if (featOn[0] && (isnan(t) || t < -50 || t == 85.0f)) return "temp_missing";
-  if (featOn[1] && (isnan(tdsV) || tdsV <= EDGE_TDS_DRY_V)) return "tds_dry";
-  if (featOn[1] && tdsV >= EDGE_ADC_MAX_V) return "tds_saturated";
-  if (featOn[2] && !isnan(turbV) && turbV >= EDGE_ADC_MAX_V) return "turb_saturated";
-  if (featOn[2] && (isnan(turbV) || turbV <= EDGE_MIN_SIGNAL_V)) return "turb_missing";
-  if (featOn[3] && !isnan(phV) && phV >= EDGE_ADC_MAX_V) return "ph_saturated";
-  if (featOn[3] && (isnan(phV) || phV <= EDGE_MIN_SIGNAL_V)) return "ph_missing";
+const char* faultCode(const Det& D, float t, float tdsV, float turbV, float phV) {
+  if (D.featOn[0] && (isnan(t) || t < -50 || t == 85.0f)) return "temp_missing";
+  if (D.featOn[1] && (isnan(tdsV) || tdsV <= EDGE_TDS_DRY_V)) return "tds_dry";
+  if (D.featOn[1] && tdsV >= EDGE_ADC_MAX_V) return "tds_saturated";
+  if (D.featOn[2] && !isnan(turbV) && turbV >= EDGE_ADC_MAX_V) return "turb_saturated";
+  if (D.featOn[2] && (isnan(turbV) || turbV <= EDGE_MIN_SIGNAL_V)) return "turb_missing";
+  if (D.featOn[3] && !isnan(phV) && phV >= EDGE_ADC_MAX_V) return "ph_saturated";
+  if (D.featOn[3] && (isnan(phV) || phV <= EDGE_MIN_SIGNAL_V)) return "ph_missing";
   return nullptr;
 }
 
-Result detectorUpdate(float t, float tdsV, float turbV, float phPinV) {
+// raw = pin readings (t, tdsV, turbV, phPinV), v = values (temp C, TDS ppm, turb V, pH); med gets the smoothed values
+Result detUpdate(Det& D, const float raw[4], const float v[4], float med[4]) {
   Result r;
   memset(&r, 0, sizeof(r));
-  for (int k = 0; k < 4; k++) r.vals[k] = NAN;
-  r.alarm = alarmState;
+  r.alarm = D.alarm;
+  const EdgeModel* m = D.m;
+  const int n = m->n;
 
-  const char* fc = faultCode(t, tdsV, turbV, phPinV);
-  if (fc) { winCount = 0; r.status = ST_FAULT; r.fault = fc; return r; }
+  const char* fc = faultCode(D, raw[0], raw[1], raw[2], raw[3]);
+  if (fc) { D.count = 0; r.status = ST_FAULT; r.fault = fc; return r; }
 
-  float v[4] = {t, tdsPpm(tdsV, t), turbV, phValue(phPinV)};
-  for (int k = 0; k < 4; k++) r.vals[k] = v[k];
-  r.hasVals = true;
-
-  if (winCount == WIN) {                                   // slide the window by one sample
-    memmove(winBuf[0], winBuf[1], sizeof(float) * EDGE_N * (WIN - 1));
-    winCount = WIN - 1;
+  if (D.count == D.win) {                                  // slide the window by one sample
+    memmove(D.buf[0], D.buf[1], sizeof(float) * 4 * (D.win - 1));
+    D.count = D.win - 1;
   }
-  for (int i = 0; i < EDGE_N; i++) winBuf[winCount][i] = v[EDGE_FEAT[i]];
-  winCount++;
-  if (winCount < WIN) { r.status = ST_STARTING; return r; }
+  for (int i = 0; i < n; i++) D.buf[D.count][i] = v[m->feat[i]];
+  D.count++;
+  if (D.count < D.win) { r.status = ST_STARTING; return r; }
 
-  float x[EDGE_N];
-  for (int i = 0; i < EDGE_N; i++) {                       // median of each column (window is odd)
+  float x[4];
+  for (int i = 0; i < n; i++) {                            // median of each column (window is odd)
     float c[MAX_WIN];
-    for (int k = 0; k < WIN; k++) c[k] = winBuf[k][i];
-    for (int a = 1; a < WIN; a++) { float key = c[a]; int b = a - 1; while (b >= 0 && c[b] > key) { c[b + 1] = c[b]; b--; } c[b + 1] = key; }
-    x[i] = c[WIN / 2];
-    r.vals[EDGE_FEAT[i]] = x[i];                           // upload the smoothed value
+    for (int k = 0; k < D.win; k++) c[k] = D.buf[k][i];
+    for (int a = 1; a < D.win; a++) { float key = c[a]; int b = a - 1; while (b >= 0 && c[b] > key) { c[b + 1] = c[b]; b--; } c[b + 1] = key; }
+    x[i] = c[D.win / 2];
+    med[m->feat[i]] = x[i];
   }
-  float d[EDGE_N], s = 0;
-  for (int i = 0; i < EDGE_N; i++) d[i] = x[i] - EDGE_MU[i];
-  for (int i = 0; i < EDGE_N; i++) for (int j = 0; j < EDGE_N; j++) s += d[i] * EDGE_P[i][j] * d[j];
-  ewmaVal = ewmaInit ? LAM * s + (1 - LAM) * ewmaVal : s;
-  ewmaInit = true;
-  float ratio = (ewmaVal - EDGE_MED) / (EDGE_THR - EDGE_MED);
+  float d[4], s = 0;
+  for (int i = 0; i < n; i++) d[i] = x[i] - m->mu[i];
+  for (int i = 0; i < n; i++) for (int j = 0; j < n; j++) s += d[i] * m->P[i][j] * d[j];
+  D.ewma = D.ewmaInit ? D.lam * s + (1 - D.lam) * D.ewma : s;
+  D.ewmaInit = true;
+  float ratio = (D.ewma - m->med) / (m->thr - m->med);
 
-  if (!alarmState) {
-    aboveN = ratio > 1.0f ? aboveN + 1 : 0;
-    if (aboveN >= PERSIST) { alarmState = true; belowN = 0; }
+  if (!D.alarm) {
+    D.above = ratio > 1.0f ? D.above + 1 : 0;
+    if (D.above >= D.persist) { D.alarm = true; D.below = 0; }
   } else {
-    belowN = ratio < EDGE_RELEASE ? belowN + 1 : 0;
-    if (belowN >= PERSIST) { alarmState = false; aboveN = 0; }
+    D.below = ratio < m->release ? D.below + 1 : 0;
+    if (D.below >= D.persist) { D.alarm = false; D.above = 0; }
   }
   int top = 0; float topZ = 0;
-  for (int i = 0; i < EDGE_N; i++) { float z = d[i] / EDGE_SD[i]; if (fabsf(z) > fabsf(topZ)) { topZ = z; top = i; } }
-  r.status = alarmState ? ST_ANOMALY : ST_NORMAL;
-  r.alarm = alarmState; r.scored = true; r.ratio = ratio; r.driver = EDGE_FEAT[top]; r.driverZ = topZ;
+  for (int i = 0; i < n; i++) { float z = d[i] / m->sd[i]; if (fabsf(z) > fabsf(topZ)) { topZ = z; top = i; } }
+  r.status = D.alarm ? ST_ANOMALY : ST_NORMAL;
+  r.alarm = D.alarm; r.scored = true; r.ratio = ratio; r.driver = m->feat[top]; r.driverZ = topZ;
   return r;
 }
 
@@ -214,39 +210,44 @@ void queueNtfy(const char* title, const char* body, bool urgent) {
   xQueueSend(upQ, &m, 0);
 }
 
-// one window of results -> one ThingSpeak row (worst status, highest score), like edge_sim.py
-int winWorstRank = -2, winWorstCode = 0, winPeakDriver = 0;
-bool winAny = false, winHasPeak = false, winHasVals = false;
-float winPeak = 0, winPeakZ = 0, winVals[4] = {NAN, NAN, NAN, NAN};
+// one window of results -> one ThingSpeak row (worst status, highest score per model), like edge_sim.py
+// fields: 1 temp, 2 TDS, 3 turbidity, 4 pH, 5 score MAIN, 6 status MAIN + 10*status ALT,
+//         7 driver MAIN + 10*driver ALT (1..4, 0 = none), 8 score ALT
+WinAcc wMain, wAlt;
+bool winAny = false, winHasVals = false;
+float winVals[4] = {NAN, NAN, NAN, NAN};
 unsigned long lastUpload = 0;
 
-void windowAdd(const Result& r) {
-  winAny = true;
+void accReset(WinAcc& w) { w.worstRank = -2; w.worstCode = 0; w.peakDriver = -1; w.hasPeak = false; w.peak = 0; }
+
+void accAdd(WinAcc& w, const Result& r) {
   int rank = r.status == ST_STARTING ? -1 : r.status;
-  if (rank > winWorstRank) { winWorstRank = rank; winWorstCode = r.status; }
-  if (r.scored && (!winHasPeak || r.ratio > winPeak)) {
-    winHasPeak = true; winPeak = r.ratio; winPeakDriver = r.driver; winPeakZ = r.driverZ;
-  }
-  if (r.hasVals) { winHasVals = true; for (int k = 0; k < 4; k++) winVals[k] = r.vals[k]; }
+  if (rank > w.worstRank) { w.worstRank = rank; w.worstCode = r.status; }
+  if (r.scored && (!w.hasPeak || r.ratio > w.peak)) { w.hasPeak = true; w.peak = r.ratio; w.peakDriver = r.driver; }
+}
+
+void windowAdd(const Result& a, const Result& b, const float vals[4], bool hasVals) {
+  winAny = true;
+  accAdd(wMain, a); accAdd(wAlt, b);
+  if (hasVals) { winHasVals = true; for (int k = 0; k < 4; k++) winVals[k] = vals[k]; }
 }
 
 void windowFlush() {
   UpMsg m; memset(&m, 0, sizeof(m));
   m.kind = 0;
   for (int k = 0; k < 4; k++) if (winHasVals && !isnan(winVals[k])) { m.f[k] = winVals[k]; m.has[k] = true; }
-  if (winHasPeak) {
-    m.f[4] = winPeak; m.has[4] = true;
-    m.f[6] = winPeakDriver + 1; m.has[6] = true;
-    m.f[7] = winPeakZ; m.has[7] = true;
-  }
-  m.f[5] = winWorstCode; m.has[5] = true;
+  if (wMain.hasPeak) { m.f[4] = wMain.peak; m.has[4] = true; }
+  if (wAlt.hasPeak) { m.f[7] = wAlt.peak; m.has[7] = true; }
+  m.f[5] = wMain.worstCode + 10 * wAlt.worstCode; m.has[5] = true;
+  m.f[6] = (wMain.peakDriver + 1) + 10 * (wAlt.peakDriver + 1); m.has[6] = true;
   xQueueSend(upQ, &m, 0);
-  winWorstRank = -2; winWorstCode = 0; winAny = winHasPeak = winHasVals = false; winPeak = 0;
+  accReset(wMain); accReset(wAlt);
+  winAny = winHasVals = false;
 }
 
 // ---------------------------------------------------------------- main
 int curStatus = ST_STARTING;
-bool prevAlarm = false, bootSent = false;
+bool prevAlarm = false, bootSent = false, usingAlt = false;
 int faultSecs = 0; bool faultSent = false;
 
 void setup() {
@@ -259,11 +260,13 @@ void setup() {
   tempSensor.begin();
   tempSensor.setWaitForConversion(false);
   tempSensor.requestTemperatures();
-  detectorInit();
+  detInit(detMain, &MODEL_MAIN);
+  detInit(detAlt, &MODEL_ALT);
+  accReset(wMain); accReset(wAlt);
   upQ = xQueueCreate(6, sizeof(UpMsg));
   xTaskCreatePinnedToCore(uplinkTask, "uplink", 20480, nullptr, 1, nullptr, 0);
-  Serial.println("# Water Sentinel EDGE firmware v2");
-  Serial.printf("# model window=%d persist=%d lambda=%.3f features=%d\n", WIN, PERSIST, LAM, EDGE_N);
+  Serial.println("# Water Sentinel EDGE firmware v3 (two models: main + backup)");
+  Serial.printf("# main %d sensors, backup %d sensors, window=%d persist=%d\n", MODEL_MAIN.n, MODEL_ALT.n, detMain.win, detMain.persist);
   Serial.println("# DATA,ms,temp_c,tds_v,turb_v,ph_pin_v");
 }
 
@@ -274,6 +277,11 @@ void updateIndicators() {
   else if (prevAlarm) { led = true; buz = (ms / 500) % 2; }
   digitalWrite(LED_PIN, led);
   if (BUZZER_PIN >= 0) digitalWrite(BUZZER_PIN, buz);
+}
+
+void printRes(const char* name, const Result& r) {
+  if (r.scored) Serial.printf("%s=%s %.3f %s", name, STATUS_NAME[r.status], r.ratio, SENSOR_NAME[r.driver]);
+  else Serial.printf("%s=%s %s", name, STATUS_NAME[r.status], r.fault ? r.fault : "-");
 }
 
 void loop() {
@@ -309,13 +317,23 @@ void loop() {
   printValue(turbV, 4); Serial.print(",");
   printValue(phV, 4); Serial.println();
 
-  Result r = detectorUpdate(t, tdsV, turbV, phV);
+  float raw[4] = {t, tdsV, turbV, phV};
+  float v[4] = {t, tdsPpm(tdsV, t), turbV, phValue(phV, tdsV)};
+  float med[4] = {NAN, NAN, NAN, NAN};
+  Result rA = detUpdate(detAlt, raw, v, med);              // backup first, main overwrites shared smoothed values
+  Result rM = detUpdate(detMain, raw, v, med);
+  bool hasVals = rM.status != ST_FAULT || rA.status != ST_FAULT;
+  windowAdd(rM, rA, med, hasVals);
+
+  // the 4-sensor model drives the alarm; if only it is in fault (e.g. pH probe out), the 3-sensor model takes over
+  usingAlt = (rM.status == ST_FAULT && rA.status != ST_FAULT);
+  const Result& r = usingAlt ? rA : rM;
   curStatus = r.status;
-  windowAdd(r);
 
   if (r.alarm && !prevAlarm) {
-    char b[120];
-    snprintf(b, sizeof(b), "Abnormal water detected by the board (%s moved most, score %.2f).", SENSOR_NAME[r.driver], r.ratio);
+    char b[150];
+    snprintf(b, sizeof(b), "Abnormal water detected by the board (%s moved most, score %.2f, %d-sensor model).",
+             SENSOR_NAME[r.driver], r.ratio, usingAlt ? MODEL_ALT.n : MODEL_MAIN.n);
     queueNtfy("Water Sentinel: anomaly", b, true);
   } else if (!r.alarm && prevAlarm) {
     queueNtfy("Water Sentinel: back to normal", "Water looks normal again.", false);
@@ -330,11 +348,10 @@ void loop() {
     }
   } else { faultSecs = 0; faultSent = false; }
 
-  if (!bootSent && wifiUp) { queueNtfy("Water Sentinel: board online", "The board is on Wi-Fi and running the MSPC model.", false); bootSent = true; }
+  if (!bootSent && wifiUp) { queueNtfy("Water Sentinel: board online", "The board is on Wi-Fi and running two MSPC models (4 and 3 sensors).", false); bootSent = true; }
   if (winAny && now - lastUpload >= UPLOAD_EVERY_MS) { lastUpload = now; windowFlush(); }
 
-  if (isnan(r.ratio) || !r.scored)
-    Serial.printf("# EDGE,%s,-,%s,wifi=%d,ts=%d/%d(last %d),ntfy=%d\n", STATUS_NAME[r.status], r.fault ? r.fault : "-", (int)wifiUp, (int)tsOk, (int)tsFail, (int)tsLast, (int)ntfyOk);
-  else
-    Serial.printf("# EDGE,%s,%.3f,%s,wifi=%d,ts=%d/%d(last %d),ntfy=%d\n", STATUS_NAME[r.status], r.ratio, SENSOR_NAME[r.driver], (int)wifiUp, (int)tsOk, (int)tsFail, (int)tsLast, (int)ntfyOk);
+  Serial.print("# EDGE,"); printRes("main", rM); Serial.print(","); printRes("alt", rA);
+  Serial.printf(",active=%d,wifi=%d,ts=%d/%d(last %d),ntfy=%d\n", usingAlt ? MODEL_ALT.n : MODEL_MAIN.n,
+                (int)wifiUp, (int)tsOk, (int)tsFail, (int)tsLast, (int)ntfyOk);
 }

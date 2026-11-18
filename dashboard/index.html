@@ -75,7 +75,7 @@ footer { color: var(--muted); font-size: 12px; margin-top: 18px; }
 <div class="wrap">
   <header>
     <div class="logo"><svg width="20" height="20" viewBox="0 0 32 32" aria-hidden="true"><path d="M16 3C11 10 7 15 7 20a9 9 0 0 0 18 0c0-5-4-10-9-17z" fill="#fff"/></svg></div>
-    <div><h1>Water Sentinel</h1><div style="color:var(--muted);font-size:13px">คุณภาพน้ำแบบสด · โมเดล MSPC ประมวลผลบนบอร์ด ESP32 · ดูได้อย่างเดียว</div></div>
+    <div><h1>Water Sentinel</h1><div style="color:var(--muted);font-size:13px">คุณภาพน้ำแบบสด · โมเดล MSPC 2 ตัว (4 และ 3 เซนเซอร์) ประมวลผลบนบอร์ด ESP32 · ดูได้อย่างเดียว</div></div>
     <span class="spacer"></span>
     <span class="pill" id="age">กำลังโหลด...</span>
     <button class="btn" id="btnQr">📱 QR</button>
@@ -93,15 +93,17 @@ footer { color: var(--muted); font-size: 12px; margin-top: 18px; }
     <div class="tile"><div class="k">TDS (สารละลาย)</div><div class="v"><span id="vTds">–</span><span class="u">ppm</span></div></div>
     <div class="tile"><div class="k">ความขุ่น (แรงดัน)</div><div class="v"><span id="vTurb">–</span><span class="u">V</span></div></div>
     <div class="tile" id="tilePh" hidden><div class="k">pH</div><div class="v"><span id="vPh">–</span></div></div>
-    <div class="tile"><div class="k">คะแนนความผิดปกติ</div><div class="v"><span id="vScore">–</span><span class="u">/ 1.00</span></div></div>
+    <div class="tile"><div class="k">คะแนนความผิดปกติ (<span id="kModel">4</span> เซนเซอร์)</div><div class="v"><span id="vScore">–</span><span class="u">/ 1.00</span></div></div>
   </div>
 
   <div class="grid">
     <div class="card wide">
-      <div class="row"><h2>คะแนนความผิดปกติ</h2><span class="spacer"></span>
+      <div class="row"><h2>คะแนนความผิดปกติ</h2>
+        <div class="seg" id="model"><button data-n="4" class="on">4 เซนเซอร์</button><button data-n="3">3 เซนเซอร์</button></div>
+        <span class="spacer"></span>
         <div class="seg" id="range"><button data-m="60" class="on">1 ชม.</button><button data-m="360">6 ชม.</button><button data-m="1440">24 ชม.</button></div></div>
       <div class="box"><canvas id="cScore"></canvas></div>
-      <p class="note">0 = เหมือนน้ำปกติ · เส้นแดง 1.0 = เส้นเตือน · แถบแดง = ช่วงที่บอร์ดเตือน · บอร์ดตรวจทุก 1 วินาทีด้วย MSPC และส่งค่าสรุปขึ้นมาทุก 15 วินาที</p>
+      <p class="note">0 = เหมือนน้ำปกติ · เส้นแดง 1.0 = เส้นเตือน · แถบแดง = ช่วงที่บอร์ดเตือน · บอร์ดรันโมเดล MSPC สองตัวพร้อมกันทุก 1 วินาที (4 เซนเซอร์เป็นตัวหลัก, 3 เซนเซอร์เป็นตัวสำรองเมื่อ pH มีปัญหา) และส่งค่าสรุปขึ้นมาทุก 15 วินาที</p>
     </div>
     <div class="card"><h2>อุณหภูมิ (°C)</h2><div class="box"><canvas id="cTemp"></canvas></div></div>
     <div class="card"><h2>TDS (ppm)</h2><div class="box"><canvas id="cTds"></canvas></div></div>
@@ -129,7 +131,12 @@ const STATUS = {
   2: { t: "ตรวจพบความผิดปกติ", s: "", ic: "🚨", c: "bad" },
   3: { t: "เซนเซอร์มีปัญหา", s: "หัววัดอาจหลุดจากน้ำหรือสายหลวม", ic: "⚠️", c: "warn" },
 };
+/* Firmware v3 (from DUAL_SINCE) runs two models and packs them: field5 = score (4 sensors), field8 = score (3 sensors),
+   field6 = status4 + 10*status3, field7 = driver4 + 10*driver3. Older rows hold only the 3-sensor model (field8 = z). */
+const DUAL_SINCE = new Date("2026-11-18T03:00:00Z").getTime();
 const DRIVER = { 1: "อุณหภูมิ", 2: "TDS", 3: "ความขุ่น", 4: "pH" };
+let view = 4;
+try { const v = +localStorage.getItem("ws_model"); if (v === 3 || v === 4) view = v; } catch (e) {}
 const $ = (id) => document.getElementById(id);
 const css = (v) => getComputedStyle(document.documentElement).getPropertyValue(v).trim();
 const num = (v) => (v === null || v === undefined || v === "" ? null : Number(v));
@@ -148,17 +155,35 @@ async function load() {
     if (data === -1 || !data.feeds) throw new Error("อ่าน channel ไม่ได้ (ตรวจ Channel ID / Read key)");
     $("err").hidden = true;
     const since = Math.max(Date.now() - minutes * 60000, REAL_BOARD_SINCE);
-    render(data.feeds.filter((f) => new Date(f.created_at).getTime() >= since).map((f) => ({
-      t: new Date(f.created_at), temp: num(f.field1), tds: num(f.field2), turb: num(f.field3), ph: num(f.field4),
-      score: num(f.field5), status: num(f.field6), driver: num(f.field7), z: num(f.field8),
-    })));
+    feeds = data.feeds.filter((f) => new Date(f.created_at).getTime() >= since);
+    render(decode(feeds));
   } catch (e) {
     $("err").hidden = false;
     $("err").textContent = "โหลดข้อมูลไม่ได้: " + e.message + " · จะลองใหม่อัตโนมัติ";
   }
 }
 
-let lastRows = [];
+let lastRows = [], feeds = [];
+function decode(fs) {
+  return fs.map((f) => {
+    const t = new Date(f.created_at), dual = t.getTime() >= DUAL_SINCE;
+    const row = { t, temp: num(f.field1), tds: num(f.field2), turb: num(f.field3), ph: num(f.field4) };
+    const s = num(f.field6), d = num(f.field7);
+    if (dual) {
+      const s4 = s == null ? null : s % 10, s3 = s == null ? null : Math.floor(s / 10);
+      const d4 = d == null ? 0 : d % 10, d3 = d == null ? 0 : Math.floor(d / 10);
+      row.score = view === 4 ? num(f.field5) : num(f.field8);
+      row.status = view === 4 ? s4 : s3;
+      row.driver = view === 4 ? d4 : d3;
+      row.alt = view === 4 ? s3 : null;          // 4-sensor view: what the backup model says (used when pH faults)
+    } else if (view === 3) {
+      row.score = num(f.field5); row.status = s; row.driver = d;
+    } else {
+      row.score = null; row.status = null; row.driver = null;
+    }
+    return row;
+  });
+}
 function render(rows) { lastRows = rows; head(rows); draw(rows); }
 
 function head(rows) {
@@ -172,19 +197,24 @@ function head(rows) {
   const age = (Date.now() - last.t.getTime()) / 1000;
   const stale = age > STALE_S;
   $("age").textContent = "อัปเดต " + (age < 60 ? Math.round(age) + " วินาทีที่แล้ว" : last.t.toLocaleTimeString("th-TH", { hour12: false }));
-  const st = STATUS[last.status] || STATUS[0];
+  let st = STATUS[last.status] || STATUS[0], note = "";
+  if (view === 4 && last.status === 3 && (last.alt === 1 || last.alt === 2)) {
+    st = STATUS[last.alt]; note = " · pH มีปัญหา บอร์ดใช้โมเดล 3 เซนเซอร์แทน";
+  }
+  const alarm = st === STATUS[2];
   if (stale) {
     hero.className = "hero warn"; $("heroIc").textContent = "📡";
     $("heroT").textContent = "บอร์ดออฟไลน์";
     $("heroS").textContent = "ไม่ได้รับข้อมูลมา " + Math.round(age / 60) + " นาที (ค่าที่เห็นคือค่าล่าสุด)";
   } else {
     hero.className = "hero " + st.c; $("heroIc").textContent = st.ic; $("heroT").textContent = st.t;
-    $("heroS").textContent = last.status === 2
-      ? `เซนเซอร์ที่เปลี่ยนมากที่สุด: ${DRIVER[last.driver] || "?"}${last.z != null ? ` (${last.z > 0 ? "สูงขึ้น" : "ต่ำลง"} ${Math.abs(last.z).toFixed(1)} เท่าของช่วงปกติ)` : ""}`
-      : st.s;
+    $("heroS").textContent = (alarm
+      ? `เซนเซอร์ที่เปลี่ยนมากที่สุด: ${DRIVER[last.driver] || "?"}`
+      : st.s) + note;
   }
   $("vTemp").textContent = fmt(last.temp, 2); $("vTds").textContent = fmt(last.tds, 0);
   $("vTurb").textContent = fmt(last.turb, 3); $("vScore").textContent = fmt(last.score, 2);
+  $("kModel").textContent = view;
   const hasPh = rows.some((r) => r.ph != null);
   $("tilePh").hidden = $("cardPh").hidden = !hasPh;
   if (hasPh) $("vPh").textContent = fmt(last.ph, 2);
@@ -207,8 +237,9 @@ const bands = {
 function spans(rows) {
   const out = []; let s = null;
   rows.forEach((r, i) => {
-    if (r.status === 2 && s === null) s = r.t.getTime();
-    if (r.status !== 2 && s !== null) { out.push([s, r.t.getTime()]); s = null; }
+    const on = r.status === 2 || (r.status === 3 && r.alt === 2);
+    if (on && s === null) s = r.t.getTime();
+    if (!on && s !== null) { out.push([s, r.t.getTime()]); s = null; }
     if (i === rows.length - 1 && s !== null) out.push([s, r.t.getTime() + 15000]);
   });
   return out;
@@ -273,6 +304,14 @@ $("range").onclick = (e) => {
   minutes = +b.dataset.m; load();
 };
 $("btnQr").onclick = showQr;
+function setView(n) {
+  view = n;
+  document.querySelectorAll("#model button").forEach((x) => x.classList.toggle("on", +x.dataset.n === n));
+  try { localStorage.setItem("ws_model", String(n)); } catch (e) {}
+  if (feeds.length) render(decode(feeds));
+}
+$("model").onclick = (e) => { const b = e.target.closest("button"); if (b) setView(+b.dataset.n); };
+setView(view);
 $("qr").onclick = () => ($("qr").hidden = true);
 document.addEventListener("keydown", (e) => { if (e.key === "Escape") $("qr").hidden = true; });
 load();
