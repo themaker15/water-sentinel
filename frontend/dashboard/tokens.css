@@ -18,18 +18,18 @@
 
   /* status (buffer colours) */
   --accent: #1f5fbf;  --accent-ink: #ffffff;
-  --ok: #1e8a5a;      --ok-bg: #d8ede2;
-  --warn: #a86d12;    --warn-bg: #f4e6c8;
+  --ok: #187a4f;      --ok-bg: #d8ede2;
+  --warn: #946010;    --warn-bg: #f4e6c8;
   --bad: #c2362b;     --bad-bg: #f6dcd8;
   --fault: #5b6770;   --fault-bg: #dfe4e6;
   --info: #1f5fbf;    --info-bg: #dbe6f6;
   --idle-bg: #dbe5e4;
 
   /* data series: distinct at small sizes and for common colour-vision deficiencies */
-  --series-1: #1f5fbf; --series-2: #c2362b; --series-3: #a86d12; --series-4: #6b4fa0; --series-5: #0e8a8a;
+  --series-1: #1f5fbf; --series-2: #c2362b; --series-3: #946010; --series-4: #6b4fa0; --series-5: #0e8a8a;
   --series-6: #c25a8c; --series-7: #4f7a28; --series-8: #8c5a2b; --series-9: #3c8dd6; --series-10: #7a7f86;
   --sensor-temp_c: #c25a2b; --sensor-tds_ppm: #1f5fbf; --sensor-turb_v: #6b4fa0; --sensor-ph: #0e8a8a;
-  --model-mspc: #1e8a5a; --model-pca: #1f5fbf; --model-iforest: #a86d12; --model-ocsvm: #6b4fa0;
+  --model-mspc: #187a4f; --model-pca: #1f5fbf; --model-iforest: #946010; --model-ocsvm: #6b4fa0;
   --model-lof: #c25a8c; --model-threshold: #7a7f86;
   --grid: #9fb2b4;
 

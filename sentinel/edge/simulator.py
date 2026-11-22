@@ -53,7 +53,7 @@ def load_edge():
 def match_model(sim, edge):
     """Centre the fake water on what the model was trained on (your tap water), so "normal" really is normal.
     Scenarios (salt, starch, ...) are volt offsets on top of this baseline, so they still push the model off."""
-    f, mu, c = edge["features"], dict(zip(edge["features"], edge["mu"])), edge["calib"]
+    mu, c = dict(zip(edge["features"], edge["mu"])), edge["calib"]
     temp = mu.get("temp_c", sim.base["temp_c"])
     sim.base["temp_c"] = temp
     if "turb_v" in mu:

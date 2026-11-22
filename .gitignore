@@ -7,6 +7,8 @@ __pycache__/
 *.pyc
 .pytest_cache/
 .venv/
+*.egg-info/
+build/
 
 # ESP32 Wi-Fi / ThingSpeak / ntfy keys
 firmware/**/secrets.h

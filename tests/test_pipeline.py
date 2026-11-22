@@ -190,7 +190,7 @@ def test_unsteady_ramp_markers_and_drift(client):
 def test_tuning_preview_matches_training_and_restore_reproduces(client):
     """WP4: the preview engine reproduces the trained numbers, instant changes do not refit,
     out-of-range values are refused, and restoring a snapshot reproduces the report exactly."""
-    c, hub = client, client.hub
+    c = client
     rep = c.get("/api/report").json()
     for key in ("mspc", "pca"):
         pv = c.post("/api/tune/preview", json={"model": key, "settings": {}}).json()
@@ -332,10 +332,9 @@ def test_causes_rules_unseen_and_live(client):
 
 def test_run_explorer_and_management(client):
     """WP2: run detail with characteristics, quick to open; runs are archived, never deleted."""
-    import pathlib
     import numpy as np
     from sentinel.config import DATA_DIR
-    c, hub = client, client.hub
+    c = client
     runs = c.get("/api/runs").json()["runs"]
     norm = next(r for r in runs if r["label"] == "normal")
     t0 = time.perf_counter()
