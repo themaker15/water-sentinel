@@ -74,15 +74,19 @@ def viewer_config(cfg):
             d[path[-1]] = [] if isinstance(d[path[-1]], list) else ""
     return cfg
 
-LOGIN_PAGE = """<!doctype html><html lang="th"><head><meta charset="utf-8">
-<meta name="viewport" content="width=device-width,initial-scale=1"><title>Water Sentinel</title>
-<style>body{margin:0;min-height:100vh;display:grid;place-items:center;background:#0b1220;color:#e2e8f0;
-font-family:system-ui,sans-serif}form{background:#111a2e;padding:28px;border-radius:16px;width:min(320px,90vw)}
-input,button{width:100%;box-sizing:border-box;padding:12px;border-radius:10px;font-size:18px;margin-top:12px}
-input{border:1px solid #334155;background:#0b1220;color:#e2e8f0;letter-spacing:4px;text-align:center}
-button{border:0;background:#38bdf8;color:#082f49;font-weight:700}p{color:#f87171}</style></head>
-<body><form method="post" action="/login"><h2>💧 Water Sentinel</h2><div>Enter the PIN for remote access</div>
-<input name="pin" type="password" inputmode="numeric" autofocus><button>Sign in</button>{err}</form></body></html>"""
+LOGIN_PAGE = """<!doctype html><html lang="en"><head><meta charset="utf-8">
+<meta name="viewport" content="width=device-width,initial-scale=1"><title>Sign in · Water Sentinel</title>
+<style>body{margin:0;min-height:100vh;display:grid;place-items:center;background:#e4eceb;color:#102a30;
+font-family:"Atkinson Hyperlegible",system-ui,sans-serif}form{background:#f7faf9;padding:28px;border-radius:14px;width:min(340px,90vw);
+border-left:6px solid #1f5fbf}h1{font-family:"Barlow Condensed","Arial Narrow",sans-serif;font-weight:600;font-size:30px;margin:0 0 6px}
+input,button{width:100%;box-sizing:border-box;padding:12px;border-radius:8px;font-size:18px;margin-top:14px;font-family:inherit}
+input{border:1px solid #c9d8d7;background:#edf3f2;color:#102a30;letter-spacing:4px;text-align:center}
+input:focus{outline:3px solid rgba(31,95,191,.35);border-color:#1f5fbf}
+button{border:0;background:#1f5fbf;color:#fff;font-weight:700;cursor:pointer}p{color:#c2362b;font-weight:700}
+@media (prefers-color-scheme:dark){body{background:#0c1d21;color:#e2eeed}form{background:#12282d;border-left-color:#6fa3ff}
+input{background:#173238;border-color:#24464c;color:#e2eeed}button{background:#6fa3ff;color:#061a3a}p{color:#f2705f}}</style></head>
+<body><form method="post" action="/login"><h1>Water Sentinel</h1><div>Enter the PIN for remote access</div>
+<input name="pin" type="password" inputmode="numeric" autocomplete="current-password" aria-label="PIN" autofocus><button>Sign in</button>{err}</form></body></html>"""
 
 
 def _token(pin):

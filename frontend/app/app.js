@@ -15,8 +15,14 @@ const SENSORS = {
   ph: { name: "pH", unit: "", dp: 2, icon: svg('<path d="M9 3h6M10 3v6L4.5 19a1.5 1.5 0 0 0 1.3 2h12.4a1.5 1.5 0 0 0 1.3-2L14 9V3"/><path d="M7 15h10"/>') },
 };
 const LABELS = ["normal", "salt_lvl1", "salt_lvl2", "baking_soda_lvl1", "starch_lvl1", "hot_water", "vinegar_lvl1"];
-const PALETTE = ["#ef4444", "#f59e0b", "#a855f7", "#3b82f6", "#ec4899", "#14b8a6", "#f97316", "#6366f1", "#06b6d4", "#84cc16"];
-const MODEL_COLORS = { mspc: "#22c55e", pca: "#3b82f6", iforest: "#f59e0b", ocsvm: "#a855f7", lof: "#ec4899", threshold: "#94a3b8" };
+/* All colours come from tokens.css, read at draw time so light/dark themes stay in sync.
+   C.ok -> --ok, MODEL_COLORS.mspc -> --model-mspc, SENSOR_COLORS.ph -> --sensor-ph, seriesColor(2) -> --series-3 */
+const tokenMap = (prefix) => new Proxy({}, { get: (_, k) => (typeof k === "string" ? css(prefix + k) : undefined) });
+const C = tokenMap("--");
+const MODEL_COLORS = tokenMap("--model-");
+const SENSOR_COLORS = tokenMap("--sensor-");
+const SERIES_N = 10;
+const seriesColor = (i) => css("--series-" + ((i % SERIES_N) + 1));
 
 const S = { st: null, lastT: 0, hist: [], charts: {}, report: null, cfg: null, lastEvent: null, audio: null,
             recWas: false, runDirty: false, tileKeys: [], scZoom: true, emb: { m: "pca", c: "label", data: null },
@@ -25,15 +31,16 @@ const S = { st: null, lastT: 0, hist: [], charts: {}, report: null, cfg: null, l
 const LABEL_COLORS = {};
 function registerLabels(labels) {   // distinct colour per label, stable order (alphabetical)
   [...new Set(labels)].filter((l) => l !== "normal").sort().forEach((l) => {
-    if (!(l in LABEL_COLORS)) LABEL_COLORS[l] = PALETTE[Object.keys(LABEL_COLORS).length % PALETTE.length];
+    if (!(l in LABEL_COLORS)) LABEL_COLORS[l] = Object.keys(LABEL_COLORS).length;   // series index, resolved at draw time
   });
 }
 function labelColor(label) {
-  if (label === "normal") return "#22c55e";
+  if (label === "normal") return C.ok;
   if (!(label in LABEL_COLORS)) registerLabels([label]);
-  return LABEL_COLORS[label];
+  return seriesColor(LABEL_COLORS[label]);
 }
 function alpha(hex, a) {
+  if (!/^#[0-9a-f]{6}$/i.test(hex || "")) return `color-mix(in srgb, ${hex} ${a * 100}%, transparent)`;
   const n = parseInt(hex.slice(1), 16);
   return `rgba(${n >> 16},${(n >> 8) & 255},${n & 255},${a})`;
 }
@@ -59,7 +66,8 @@ function applyTheme() {
   if (t) document.documentElement.dataset.theme = t;
 }
 function chartDefaults() {
-  Chart.defaults.font.family = css("--font");
+  Chart.defaults.font.family = css("--font-display");   // condensed numerals read cleanly on axes
+  Chart.defaults.font.size = 13;
   Chart.defaults.color = css("--muted");
   Chart.defaults.borderColor = css("--line");
   Chart.defaults.animation = false;
@@ -100,15 +108,12 @@ function buildTiles(usePh) {
   keys.forEach((k) => mkChart("sp-" + k, {
     type: "line",
     data: { labels: [], datasets: [{ data: [], borderColor: css("--accent"), borderWidth: 1.6, pointRadius: 0, tension: .3,
-      fill: true, backgroundColor: alpha("#38bdf8", 0.12) }] },
+      fill: true, backgroundColor: alpha(C.accent, 0.12) }] },
     options: { plugins: { legend: { display: false }, tooltip: { enabled: false } },
       maintainAspectRatio: false, layout: { padding: { top: 6, right: 4 } },
       scales: {
-        x: { display: true, grid: { display: false }, border: { color: alpha("#94a3b8", 0.5) },
-          ticks: { maxTicksLimit: 3, maxRotation: 0, font: { size: 10 }, color: css("--muted") } },
-        y: { display: true, grid: { color: alpha("#94a3b8", 0.18) }, border: { color: alpha("#94a3b8", 0.5) },
-          ticks: { maxTicksLimit: 4, font: { size: 10 }, color: css("--muted"),
-            callback: (v) => fmt(v, k === "tds_ppm" ? 0 : k === "turb_v" ? 3 : 2) } } } },
+        x: { display: false },   // the caption under the sparkline already says "Last 2 min"
+        y: { display: false } } },   // min / max are printed in the caption below
   }));
 }
 
@@ -117,7 +122,7 @@ function initScoreChart() {
     type: "line",
     data: { labels: [], datasets: [
       { label: "Score", data: [], borderColor: css("--accent"), borderWidth: 2, pointRadius: 0, tension: .25, fill: true,
-        backgroundColor: alpha("#38bdf8", 0.12),
+        backgroundColor: alpha(C.accent, 0.12),
         segment: { borderColor: (c) => (c.p1.parsed.y > 1 ? css("--bad") : undefined) } },
       { label: "Alarm line", data: [], borderColor: css("--bad"), borderDash: [6, 5], borderWidth: 1.5, pointRadius: 0, fill: false },
     ] },
@@ -132,10 +137,10 @@ function initScoreChart() {
 }
 
 const HERO = {
-  normal: ["✅", "Normal water"], anomaly: ["⚠️", "Abnormal water detected"], fault: ["🔧", "Sensor problem"],
-  drifting: ["📈", "Values drifting slowly"],
-  starting: ["⏳", "Starting measurement…"], off: ["💤", "Monitoring is off"], no_model: ["📋", "No model yet"],
-  no_data: ["🔌", "No data from the sensor"],
+  normal: ["", "Normal water"], anomaly: ["", "Abnormal water detected"], fault: ["", "Sensor problem"],
+  drifting: ["", "Values drifting slowly"],
+  starting: ["⏳", "Starting measurement…"], off: ["", "Monitoring is off"], no_model: ["", "No model yet"],
+  no_data: ["", "No data from the sensor"],
 };
 
 function renderLive(st) {
@@ -153,7 +158,7 @@ function renderLive(st) {
   else if (s === "off") sub = "Turn on the switch on the right to start real-time anomaly detection";
   else if (s === "no_model") sub = "Record at least 5 normal-water runs, then press Train on the \"Train & compare\" tab";
   else if (s === "no_data") sub = st.link.msg;
-  $("hero").className = "card hero span-12 s-" + s;
+  $("hero").className = "hero span-12 s-" + s;
   $("heroIcon").textContent = icon; $("heroTitle").textContent = title; $("heroSub").textContent = sub;
   const tg = $("monitorToggle");
   if (document.activeElement !== tg) tg.checked = !!st.monitor_on;
@@ -161,8 +166,8 @@ function renderLive(st) {
   $("heroModel").textContent = st.model.exists ? `Model: ${st.model.active_name}` : "";
   const ap = $("liveAlarmPill");
   ap.hidden = !(s === "anomaly" && !$("exploreBox").hidden);
-  ap.textContent = "⚠️ Abnormal water alarm — tap to go back to live view";
-  document.title = s === "anomaly" ? "⚠️ Abnormal · Water Sentinel" : "Water Sentinel";
+  ap.textContent = "Abnormal water alarm — tap to go back to live view";
+  document.title = s === "anomaly" ? "Abnormal · Water Sentinel" : "Water Sentinel";
 
   buildTiles(st.use_ph);
   const L = st.latest || {};
@@ -202,7 +207,10 @@ function renderLive(st) {
   }
 
   const r = stale ? null : d.ratio;
-  $("gaugeBar").style.width = r == null ? "0%" : Math.max(0, Math.min(100, r * 50)) + "%";
+  // graduated cylinder: 0 at the bottom, alarm line (1.0) at two thirds, full at 1.5 and above
+  $("hero").style.setProperty("--level", r == null ? 0 : Math.max(0, Math.min(1, r / 1.5)));
+  $("cylTube").classList.toggle("over", r != null && r > 1.5);
+  $("heroScore").textContent = r == null ? "–" : fmt(r);
   $("ratioText").textContent = r == null ? (stale ? "No live data" : "–") : `Now ${fmt(r)}`;
   const sc = S.charts.cScore;
   const tail = S.hist.slice(-600);
@@ -239,7 +247,7 @@ function renderEvents(evs) {
     evs.filter((e) => e.id > S.lastEvent).reverse().forEach(onNewEvent);
     S.lastEvent = top;
   }
-  const kindIcon = { anomaly: "⚠️", recovered: "✅", fault: "🔧", info: "ℹ️", link_lost: "🔌", link_restored: "🔌", drift: "📈" };
+  const kindIcon = { anomaly: "", recovered: "", fault: "", info: "", link_lost: "", link_restored: "", drift: "" };
   // collapse consecutive identical events (e.g. a probe lifted many times) into one row with a count
   const rows = [];
   for (const e of evs) {
@@ -279,18 +287,18 @@ function beep(freqs, dur = 0.18, gap = 0.08, vol = 0.25) {
 function onNewEvent(e) {
   if (e.kind === "anomaly") {
     beep([880, 660, 880, 660, 880]);
-    notify("⚠️ Abnormal water", e.msg);
+    notify("Abnormal water", e.msg);
   } else if (e.kind === "recovered") {
     beep([523, 784], 0.15);
-    notify("✅ Back to normal", e.msg);
+    notify("Back to normal", e.msg);
   } else if (e.kind === "fault") {
     beep([300], 0.25, 0, 0.15);
   } else if (e.kind === "drift") {
     beep([523, 587], 0.12, 0.05, 0.15);
-    notify("📈 Values drifting slowly", e.msg);
+    notify("Values drifting slowly", e.msg);
   } else if (e.kind === "link_lost") {
     beep([440, 330], 0.3);
-    notify("🔌 Sensor link lost", e.msg);
+    notify("Sensor link lost", e.msg);
   }
 }
 function notify(title, body) {
@@ -435,7 +443,7 @@ function renderReport() {
   box.innerHTML = `
   <div class="grid">
     <div class="card span-12">
-      <div class="row"><h2>🏆 Recommended: ${esc(best.name)}</h2><span class="spacer"></span><span class="hint" style="margin:0">Trained ${esc(meta.created)}</span></div>
+      <div class="row"><h2>Recommended: ${esc(best.name)}</h2><span class="spacer"></span><span class="hint" style="margin:0">Trained ${esc(meta.created)}</span></div>
       <p class="hint">${hasAnom ? "Highest balanced accuracy with false alarms at or below 2%" : "No anomaly runs yet, so only false alarms can be compared (record anomaly runs for a full comparison)"}</p>
       <div class="kpis">
         <div class="tile"><div class="k">False alarms on normal water</div><div class="v ${cls(best.false_alarm, false, .02)}">${pct(best.false_alarm)}</div></div>
@@ -464,7 +472,7 @@ function renderReport() {
         <thead><tr><th>Model</th><th class="num">False alarms ↓</th>${hasTest ? '<th class="num">False alarms on test runs ↓</th>' : ""}<th class="num">Detected ↑</th><th class="num">Balanced acc ↑</th><th class="num">AUC ↑</th>
           <th class="num">Time to alarm</th><th class="num">Anomaly runs caught</th><th class="num">Speed/sample</th><th></th></tr></thead>
         <tbody>${models.map((m) => `<tr class="${m.key === meta.best ? "best" : ""}">
-          <td><span class="tag" style="background:${alpha(MODEL_COLORS[m.key], .18)};color:${MODEL_COLORS[m.key]}">●</span> ${esc(m.name)}${m.key === meta.best ? " 🏆" : ""}</td>
+          <td><span class="tag" style="background:${alpha(MODEL_COLORS[m.key], .18)};color:${MODEL_COLORS[m.key]}">●</span> ${esc(m.name)}${m.key === meta.best ? " " : ""}</td>
           <td class="num ${cls(m.false_alarm, false, .02)}">${pct(m.false_alarm)}</td>
           ${hasTest ? `<td class="num ${cls(m.test_false_alarm, false, .02)}">${pct(m.test_false_alarm)}</td>` : ""}
           <td class="num ${cls(m.detection, true, .8)}">${pct(m.detection)}</td>
@@ -472,7 +480,7 @@ function renderReport() {
           <td class="num">${m.delay_s == null ? "–" : Math.round(m.delay_s) + " s"}</td>
           <td class="num">${hasAnom ? `${m.runs_caught}/${meta.anomaly_runs.length}` : "–"}</td>
           <td class="num">${m.score_us < 1000 ? Math.round(m.score_us) + " µs" : (m.score_us / 1000).toFixed(1) + " ms"}</td>
-          <td>${m.key === active ? `<span class="tag" style="background:${alpha("#22c55e", .2)};color:var(--ok)">In use</span>`
+          <td>${m.key === active ? `<span class="tag" style="background:${alpha(C.ok, .2)};color:var(--ok)">In use</span>`
             : `<button class="btn ghost sm" data-use="${m.key}">Use</button>`}</td></tr>`).join("")}</tbody></table></div>
       <div class="chart-box" style="margin-top:14px"><canvas id="cCompare"></canvas></div>
       <details><summary>What the metrics mean</summary><ul class="hint" style="line-height:1.8">
@@ -508,9 +516,9 @@ function renderReport() {
   mkChart("cCompare", {
     type: "bar",
     data: { labels: models.map((m) => m.name.split(" (")[0]), datasets: [
-      { label: "False alarms (%)", data: models.map((m) => (m.false_alarm ?? 0) * 100), backgroundColor: alpha("#ef4444", .75), borderRadius: 6 },
-      { label: "Detected (%)", data: models.map((m) => (m.detection ?? 0) * 100), backgroundColor: alpha("#22c55e", .75), borderRadius: 6 },
-      { label: "AUC × 100", data: models.map((m) => (m.auc ?? 0) * 100), backgroundColor: alpha("#3b82f6", .75), borderRadius: 6 },
+      { label: "False alarms (%)", data: models.map((m) => (m.false_alarm ?? 0) * 100), backgroundColor: alpha(C.bad, .75), borderRadius: 6 },
+      { label: "Detected (%)", data: models.map((m) => (m.detection ?? 0) * 100), backgroundColor: alpha(C.ok, .75), borderRadius: 6 },
+      { label: "AUC × 100", data: models.map((m) => (m.auc ?? 0) * 100), backgroundColor: alpha(C.accent, .75), borderRadius: 6 },
     ] },
     options: { scales: { y: { min: 0, max: 100 }, x: { grid: { display: false } } }, plugins: { legend: { position: "bottom" } } },
   });
@@ -608,15 +616,15 @@ function drawRunDetail() {
   // shares only mean something once the water is at least one "meaningful change" away from normal
   const share = ser.z.map((zr) => { const q = zr.map((v) => v * v); const tot = q.reduce((a, b) => a + b, 0);
     return tot < 1 ? q.map(() => null) : q.map((v) => v / tot); });
-  const sensorColors = { temp_c: "#f97316", tds_ppm: "#3b82f6", turb_v: "#a855f7", ph: "#14b8a6" };
-  const lines = (row.markers || []).map((m) => ({ x: m.t_s, color: "#f59e0b", text: m.text, dash: [] }))
+  const sensorColors = SENSOR_COLORS;
+  const lines = (row.markers || []).map((m) => ({ x: m.t_s, color: C.warn, text: m.text, dash: [] }))
     .concat((row.change_points_s || []).map((x) => ({ x, color: css("--muted"), dash: [4, 4] })));
   const bands = [];
   ser.drift.forEach((on, i) => {
     if (!on) return;
     const last = bands[bands.length - 1];
     const x1 = ser.t[Math.min(i + 1, ser.t.length - 1)];
-    if (last && last.open) last.x1 = x1; else bands.push({ x0: ser.t[i], x1, open: true, color: alpha("#facc15", 0.22) });
+    if (last && last.open) last.x1 = x1; else bands.push({ x0: ser.t[i], x1, open: true, color: alpha(C.warn, 0.22) });
     if (!ser.drift[i + 1]) bands[bands.length - 1].open = false;
   });
   mkChart("cContrib", {
@@ -758,7 +766,7 @@ async function drawEmbedding(force) {
     const key = S.emb.c === "label" ? E.label[i] : (E.alarm[i] ? "Alarm" : "No alarm");
     (groups[key] = groups[key] || []).push({ x: p[0], y: p[1] });
   });
-  const colorOf = (k) => (k === "Alarm" ? "#ef4444" : k === "No alarm" ? "#22c55e" : labelColor(k));
+  const colorOf = (k) => (k === "Alarm" ? C.bad : k === "No alarm" ? C.ok : labelColor(k));
   mkChart("cEmbed", { type: "scatter",
     data: { datasets: Object.entries(groups).map(([k, pts]) => ({ label: k, data: pts, backgroundColor: alpha(colorOf(k), .65), pointRadius: 3.2, borderWidth: 0 })) },
     options: { plugins: { legend: { position: "bottom" }, tooltip: { enabled: false } },
@@ -873,10 +881,10 @@ function renderPreview(r) {
   const m = +document.querySelector('#tuneInstant input[data-k="margin"]').value;
   mkChart("cSweep", { type: "line", plugins: [vlinesPlugin],
     data: { datasets: [
-      { label: "False alarms (%)", data: r.sweep.map((s) => ({ x: s.margin, y: (s.false_alarm ?? 0) * 100 })), borderColor: "#ef4444", pointRadius: 2, tension: .2 },
-      { label: "Detected (%)", data: r.sweep.map((s) => ({ x: s.margin, y: s.detection == null ? null : s.detection * 100 })), borderColor: "#22c55e", pointRadius: 2, tension: .2 },
+      { label: "False alarms (%)", data: r.sweep.map((s) => ({ x: s.margin, y: (s.false_alarm ?? 0) * 100 })), borderColor: C.bad, pointRadius: 2, tension: .2 },
+      { label: "Detected (%)", data: r.sweep.map((s) => ({ x: s.margin, y: s.detection == null ? null : s.detection * 100 })), borderColor: C.ok, pointRadius: 2, tension: .2 },
     ] },
-    options: { plugins: { legend: { position: "bottom" }, vlines: { lines: [{ x: m, color: "#f59e0b", text: "Trial" }] } },
+    options: { plugins: { legend: { position: "bottom" }, vlines: { lines: [{ x: m, color: C.warn, text: "Trial" }] } },
       scales: { x: { type: "linear", title: { display: true, text: "margin" } }, y: { min: 0, max: 100 } } } });
 }
 
@@ -970,9 +978,9 @@ function wire() {
     try { await api("/api/monitor", { on: e.target.checked }); unlockAudio(); }
     catch (err) { toast(err.message); e.target.checked = !e.target.checked; }
   };
-  const SIMS = [["normal", "💧 Normal water"], ["salt", "🧂 Salt"], ["baking_soda", "🧁 Baking soda"], ["starch", "🌽 Starch"],
-    ["vinegar", "🍶 Vinegar"], ["hot_water", "♨️ Hot water"], ["probe_out", "🖐️ Probe lifted"],
-    ["ramp_salt", "📈 Slow salt ramp"], ["ramp_starch", "📈 Slow starch ramp"], ["pulse", "💥 Single salt drop"]];
+  const SIMS = [["normal", "Normal water"], ["salt", "Salt"], ["baking_soda", "Baking soda"], ["starch", "Starch"],
+    ["vinegar", "Vinegar"], ["hot_water", "Hot water"], ["probe_out", "Probe lifted"],
+    ["ramp_salt", "Slow salt ramp"], ["ramp_starch", "Slow starch ramp"], ["pulse", "Single salt drop"]];
   $("simChips").innerHTML = SIMS.map(([k, t]) => `<span class="chip" data-s="${k}">${t}</span>`).join("");
   $("simChips").onclick = async (e) => {
     const s = e.target.dataset.s; if (!s) return;

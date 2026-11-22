@@ -3,32 +3,33 @@
 <head>
 <meta charset="utf-8">
 <meta name="viewport" content="width=device-width, initial-scale=1, viewport-fit=cover">
-<meta name="theme-color" content="#0b1120">
+<meta name="theme-color" content="#e4eceb">
+<meta name="description" content="Water Sentinel: real-time water-quality anomaly detection with an ESP32 and four low-cost sensors.">
 <title>Water Sentinel</title>
-<link rel="icon" href="data:image/svg+xml,<svg xmlns='http://www.w3.org/2000/svg' viewBox='0 0 100 100'><text y='.9em' font-size='90'>💧</text></svg>">
-<link rel="preconnect" href="https://fonts.googleapis.com">
-<link href="https://fonts.googleapis.com/css2?family=Sarabun:wght@400;600;700;800&display=swap" rel="stylesheet">
+<link rel="icon" href="data:image/svg+xml,%3Csvg xmlns='http://www.w3.org/2000/svg' viewBox='0 0 22 30'%3E%3Cpath d='M3 2v22a5 5 0 0 0 5 5h6a5 5 0 0 0 5-5V2' fill='none' stroke='%231f5fbf' stroke-width='2.5'/%3E%3Cpath d='M3 14h16v10a5 5 0 0 1-5 5H8a5 5 0 0 1-5-5z' fill='%231f5fbf'/%3E%3C/svg%3E">
+<link rel="stylesheet" href="/static/fonts.css">
+<link rel="stylesheet" href="/static/tokens.css">
 <link rel="stylesheet" href="/static/style.css">
 <script src="/static/vendor/chart.umd.js"></script>
 </head>
 <body>
 <header class="top">
   <div class="top-inner">
-    <div class="brand"><span class="logo">💧</span>Water Sentinel</div>
+    <div class="brand"><svg class="logo" viewBox="0 0 22 30" aria-hidden="true"><path d="M3 2v22a5 5 0 0 0 5 5h6a5 5 0 0 0 5-5V2" fill="none" stroke="currentColor" stroke-width="2.5"/><path d="M3 14h16v10a5 5 0 0 1-5 5H8a5 5 0 0 1-5-5z" fill="currentColor"/></svg>Water Sentinel</div>
     <span class="pill" id="linkPill"><span class="dot" id="linkDot"></span><span id="linkText">Connecting…</span></span>
     <span class="pill warn" id="fwPill" hidden></span>
     <span class="pill" id="modelPill">No model</span>
     <select class="pill admin-only" id="modelSel" title="Choose a trained model" hidden
       style="width:auto;padding:5px 30px 5px 11px;cursor:pointer;font:inherit;font-size:13px"></select>
   </div>
-  <nav class="tabs" id="tabs">
+  <nav class="tabs" id="tabs" aria-label="Sections">
     <button data-v="live" class="on">Overview</button>
     <button data-v="record" class="admin-only">Record</button>
     <button data-v="model">Train &amp; compare</button>
     <button data-v="viz">Visualization</button>
     <button data-v="settings" class="admin-only">Settings</button>
   </nav>
-  <div class="viewer-bar" id="viewerBar" hidden>👀 Viewer mode: read only · <a href="/login">Admin sign-in</a></div>
+  <div class="viewer-bar" id="viewerBar" hidden>Viewer mode: read only · <a href="/login">Admin sign-in</a></div>
 </header>
 
 <main>
@@ -36,21 +37,29 @@
 <section class="view on" id="v-live">
   <div class="row" style="margin-bottom:14px">
     <div class="seg" id="liveSeg"><button data-m="live" class="on">Live</button><button data-m="rec">Recorded</button></div>
-    <span class="spacer"></span><button class="btn ghost sm" id="btnQr" hidden title="Let people in the room scan to watch">📱 Viewer QR</button>
+    <span class="spacer"></span><button class="btn ghost sm" id="btnQr" hidden title="Let people in the room scan to watch">Viewer QR code</button>
     <span class="pill" id="liveAlarmPill" hidden style="background:var(--bad-bg);color:var(--bad);border-color:transparent;cursor:pointer"></span>
   </div>
   <div class="grid" id="liveBox">
-    <div class="card hero span-12" id="hero">
-      <div class="icon" id="heroIcon">💤</div>
-      <div style="flex:1;min-width:220px">
-        <div class="title" id="heroTitle">Monitoring is off</div>
-        <div class="sub" id="heroSub">Turn on the switch to start real-time anomaly detection</div>
+    <section class="hero span-12 s-off" id="hero" aria-live="polite">
+      <div class="hero-state">
+        <span class="icon" id="heroIcon" aria-hidden="true"></span>
+        <h1 class="title" id="heroTitle">Monitoring is off</h1>
+        <p class="sub" id="heroSub">Turn on the switch to start real-time anomaly detection</p>
+        <div class="hero-controls">
+          <label class="switch admin-only"><input type="checkbox" id="monitorToggle"><span class="track"></span><span>Monitoring</span></label>
+          <span class="hint" id="heroModel"></span>
+        </div>
       </div>
-      <div style="display:flex;flex-direction:column;gap:8px;align-items:flex-end">
-        <label class="switch admin-only"><span>Monitoring</span><input type="checkbox" id="monitorToggle"><span class="track"></span></label>
-        <span class="hint" style="margin:0" id="heroModel"></span>
+      <figure class="cyl" aria-hidden="true">
+        <ol class="grads"><li style="--at:0">0</li><li style="--at:.3333">0.5</li><li class="alarm" style="--at:.6667">1.0 alarm</li><li style="--at:1">1.5+</li></ol>
+        <div class="tube" id="cylTube"><div class="liquid"></div><div class="alarm-mark"></div></div>
+      </figure>
+      <div class="hero-reading">
+        <span class="reading" id="heroScore">–</span>
+        <span class="reading-cap">anomaly score<br>alarm at 1.00</span>
       </div>
-    </div>
+    </section>
 
     <div class="span-12 notice warn" id="staleNote" hidden></div>
     <div class="span-12 grid" id="tiles" style="grid-template-columns:repeat(auto-fit,minmax(170px,1fr))"></div>
@@ -58,12 +67,11 @@
     <div class="card span-8">
       <div class="row"><h2>Anomaly score</h2><span class="spacer"></span><span class="hint" style="margin:0" id="ratioText">–</span></div>
       <p class="hint">0 = like normal water · 1 = alarm line · alarms after 3 readings in a row above the line (fewer false alarms from bubbles)</p>
-      <div class="gauge" style="margin-bottom:12px"><i id="gaugeBar"></i><b></b></div>
       <div class="chart-box"><canvas id="cScore"></canvas></div>
     </div>
     <div class="card span-4">
       <div class="row"><h2>Events</h2><span class="spacer"></span>
-        <button class="btn ghost sm" id="btnSound" title="Turn on alarm sound">🔔 Sound & notifications</button></div>
+        <button class="btn ghost sm" id="btnSound" title="Turn on alarm sound">Sound and notifications</button></div>
       <p class="hint admin-only" style="margin:6px 0">Tested in monitoring mode and want to keep it for training? <button class="btn ghost sm" id="btnSaveLast">Save recent data as a run</button></p>
       <ul class="events" id="events"></ul>
     </div>
@@ -71,7 +79,7 @@
     <div class="card span-12" id="likelyCard" hidden></div>
 
     <div class="card span-12 admin-only" id="simCard" hidden>
-      <h2>🧪 Simulation</h2>
+      <h2>Simulation</h2>
       <p class="hint">No real board connected. Pick a scenario to see how the system detects and alerts</p>
       <div class="chips" id="simChips"></div>
     </div>
@@ -141,8 +149,8 @@
       <div id="markBox" class="mark-box" hidden>
         <div class="row"><b>Mark events while recording</b><span class="hint" style="margin:0">For gradual additions: response time is measured from each addition</span></div>
         <div class="chips" id="markChips">
-          <span class="chip" data-k="dose" data-t="Additive">💧 Additive</span><span class="chip" data-k="stir" data-t="Stir">🥄 Stir</span>
-          <span class="chip" data-k="probe" data-t="Probe lifted or moved">🖐️ Probe moved</span></div>
+          <span class="chip" data-k="dose" data-t="Additive">Additive</span><span class="chip" data-k="stir" data-t="Stir">Stir</span>
+          <span class="chip" data-k="probe" data-t="Probe lifted or moved">Probe moved</span></div>
         <div class="row" style="margin-top:8px">
           <input type="text" id="markText" placeholder="Text, e.g. added salt stock" style="flex:2;min-width:160px">
           <input type="number" id="markDose" placeholder="Amount (mL)" step="any" style="flex:1;min-width:110px">
@@ -331,7 +339,7 @@
     </div>
 
     <div class="card span-6" id="shareCard">
-      <h2>📱 Viewer link (presentations)</h2>
+      <h2>Viewer link for presentations</h2>
       <div id="shareBox"><p class="hint">Loading…</p></div>
     </div>
 

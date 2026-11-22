@@ -108,8 +108,8 @@ function drawTurbCurve() {
     type: "scatter",
     data: { datasets: [
       { label: "Conversion curve", data: pv.x.map((x, i) => ({ x, y: pv.ntu[i] })), showLine: true, borderColor: css("--accent"), borderWidth: 2, pointRadius: 0, tension: .2 },
-      { label: "Your standard points", data: (c.points || []).map((p) => ({ x: p[1], y: p[0] })), backgroundColor: "#f59e0b", pointRadius: 5 },
-      { label: "Now", data: live, backgroundColor: "#ef4444", pointRadius: 6 },
+      { label: "Your standard points", data: (c.points || []).map((p) => ({ x: p[1], y: p[0] })), backgroundColor: C.warn, pointRadius: 5 },
+      { label: "Now", data: live, backgroundColor: C.bad, pointRadius: 6 },
     ] },
     options: { plugins: { legend: { position: "bottom" } },
       scales: { x: { title: { display: true, text: pv.x_unit === "V" ? "Voltage (V)" : "V / V_clear" } }, y: { min: 0, title: { display: true, text: "NTU" } } } },
@@ -130,12 +130,12 @@ function renderLikely(st) {
   }).join("");
   const dr = (lk.drivers || []).map((d) => `${esc(d.text)} (z ${d.z > 0 ? "+" : ""}${d.z})`).join(" · ");
   box.innerHTML = `
-    <div class="row"><h2>🔬 Likely cause</h2><span class="tag" style="background:var(--warn-bg);color:var(--warn)">Experimental</span><span class="spacer"></span><span class="hint" style="margin:0">${esc(when)}</span></div>
+    <div class="row"><h2>Likely cause</h2><span class="tag" style="background:var(--warn-bg);color:var(--warn)">Experimental</span><span class="spacer"></span><span class="hint" style="margin:0">${esc(when)}</span></div>
     <div class="likely-head v-${esc(lk.verdict)}">${esc(lk.headline)}</div>
     ${dr ? `<p class="hint" style="margin:4px 0 8px">Biggest change: ${dr}</p>` : ""}
     ${cands ? `<div class="cands">${cands}</div><p class="legend-note">Bar = similarity of the "direction of change" (cosine, 1 = exactly the same direction) · below 0.80 counts as not matching anything known</p>` : ""}
     ${(lk.notes || []).map((n) => `<p class="hint" style="margin:4px 0">• ${esc(n)}</p>`).join("")}
-    ${(lk.disambiguate || []).map((n) => `<div class="notice">💡 ${esc(n)}</div>`).join("")}
+    ${(lk.disambiguate || []).map((n) => `<div class="notice">${esc(n)}</div>`).join("")}
     <p class="legend-note" style="margin-top:8px"><b>Keep in mind:</b> "Consistent with…" means the sensors changed in a pattern similar to that substance. It does not confirm the substance and says nothing about whether the water is safe ·
       With 3 sensors, table salt and baking soda cannot be told apart (pH is needed)</p>`;
 }
@@ -144,14 +144,14 @@ function renderLikely(st) {
 function causeModelHtml(meta) {
   const cm = meta.cause_model;
   if (!cm || !cm.eval) {
-    return `<div class="card span-12"><div class="row"><h2>🔬 Cause model</h2><span class="tag" style="background:var(--warn-bg);color:var(--warn)">Experimental</span></div>
+    return `<div class="card span-12"><div class="row"><h2>Cause model</h2><span class="tag" style="background:var(--warn-bg);color:var(--warn)">Experimental</span></div>
       <p class="hint">No labelled anomaly runs yet, so only "General rules" (direction of change from physics) can be used · record 2 or more anomaly runs per substance and retrain; the system will learn their patterns</p></div>`;
   }
   const ev = cm.eval, cols = ev.columns, fams = ev.families;
   const acc = ev.accuracy == null ? "–" : pct(ev.accuracy, 0);
   const rule = ev.rule_tested ? `${ev.rule_correct}/${ev.rule_tested}` : "–";
   return `<div class="card span-12">
-    <div class="row"><h2>🔬 Cause model (experimental)</h2><span class="tag" style="background:var(--warn-bg);color:var(--warn)">Experimental</span></div>
+    <div class="row"><h2>Cause model (experimental)</h2><span class="tag" style="background:var(--warn-bg);color:var(--warn)">Experimental</span></div>
     <p class="hint">Leave-one-anomaly-run-out test: hide that run, build the model from the others, check the guess · rows = real substance, columns = system's guess (unknown = matches nothing known, ambiguous = cannot tell two apart)</p>
     <div class="kpis"><div class="tile"><div class="k">Correct (leave-one-run-out)</div><div class="v">${acc}<span class="u">${ev.tested ? `${ev.correct}/${ev.tested}` : ""}</span></div></div>
       <div class="tile"><div class="k">General rules match your labels</div><div class="v">${rule}</div></div>

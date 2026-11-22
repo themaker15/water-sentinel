@@ -8,7 +8,7 @@ const exRunNo = (file) => { const r = S.ex.runs.find((x) => x.file === file); re
 
 const EX_SENS = ["temp_c", "tds_ppm", "turb_v", "ph"];
 const exVisible = () => $("exploreBox") && !$("exploreBox").hidden;
-const exColor = (file) => PALETTE[Math.max(0, S.ex.sel.indexOf(file)) % PALETTE.length];
+const exColor = (file) => seriesColor(Math.max(0, S.ex.sel.indexOf(file)));
 
 function setLiveMode(mode) {
   document.querySelectorAll("#liveSeg button").forEach((b) => b.classList.toggle("on", b.dataset.m === mode));
@@ -158,9 +158,9 @@ function drawExplorer() {
       if (series !== "median") sets.push({ label: "·raw " + tag, data: mk(s.raw), borderColor: alpha(col, series === "raw" ? 1 : .3), borderWidth: series === "raw" ? 1.4 : 1, pointRadius: 0, spanGaps: false });
       if (series !== "raw") sets.push({ label: tag, data: mk(s.filt), borderColor: col, borderWidth: 1.8, pointRadius: 0, spanGaps: false });
       if (showBands) {
-        if (d.warmup_s) bands.push({ x0: off, x1: off + d.warmup_s, color: "rgba(148,163,184,.16)" });
-        (d.faults || []).forEach((f) => bands.push({ x0: off + f.t0, x1: off + f.t1 + d.interval_s, color: "rgba(245,158,11,.22)" }));
-        if (ds.length === 1) (d.markers || []).forEach((m) => lines.push({ x: off + m.t_s, color: "#f59e0b", text: m.text, dash: [] }));
+        if (d.warmup_s) bands.push({ x0: off, x1: off + d.warmup_s, color: alpha(C.grid, .16) });
+        (d.faults || []).forEach((f) => bands.push({ x0: off + f.t0, x1: off + f.t1 + d.interval_s, color: alpha(C.warn, .22) }));
+        if (ds.length === 1) (d.markers || []).forEach((m) => lines.push({ x: off + m.t_s, color: C.warn, text: m.text, dash: [] }));
       }
       if (k === "turb_v" && S.ex.ntu && d.ntu && d.ntu.limit && i === 0) {
         sets.push({ label: `Reliable limit ${d.ntu.limit} NTU`, data: [{ x: off, y: d.ntu.limit }, { x: off + d.duration_s, y: d.ntu.limit }],
