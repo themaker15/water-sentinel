@@ -106,7 +106,7 @@ def run_detail(path, cfg, bundle=None, key="mspc", with_score=True):
     df["ms"] = pd.to_numeric(df.get("ms"), errors="coerce")
     df = df.dropna(subset=["ms"]).reset_index(drop=True)
     if df.empty:
-        raise ValueError("รอบนี้ไม่มีข้อมูล")
+        raise ValueError("This run has no data")
     dt = sample_interval(df["ms"])
     t = ((df["ms"] - df["ms"].min()) / 1000.0).to_numpy()
     label = str(raw["label"].iloc[0])
@@ -176,7 +176,7 @@ def stats_csv(details):
 def _safe(data_dir, file):
     p = pathlib.Path(data_dir) / file
     if pathlib.Path(file).name != file or p.suffix != ".csv":
-        raise ValueError("ชื่อไฟล์ไม่ถูกต้อง")
+        raise ValueError("Invalid file name")
     return p
 
 
@@ -198,16 +198,16 @@ def archive_run(data_dir, file):
     """Move a run (CSV + sidecar) to data/_excluded/. It stays on disk and can be restored."""
     src = _safe(data_dir, file)
     if not src.exists():
-        raise ValueError("ไม่พบไฟล์รอบนี้")
+        raise ValueError("Run file not found")
     return _move(src, pathlib.Path(data_dir) / ARCHIVE).name
 
 
 def restore_run(data_dir, file):
     src = _safe(pathlib.Path(data_dir) / ARCHIVE, file)
     if not src.exists():
-        raise ValueError("ไม่พบไฟล์ในที่เก็บ")
+        raise ValueError("File not found in the archive")
     if (pathlib.Path(data_dir) / file).exists():
-        raise ValueError("มีไฟล์ชื่อเดียวกันอยู่ในโฟลเดอร์ข้อมูลแล้ว")
+        raise ValueError("A file with the same name is already in the data folder")
     return _move(src, pathlib.Path(data_dir)).name
 
 

@@ -28,12 +28,12 @@ STAGE1_DETECTOR = ("median_s", "warmup_s")
 _cache, _lock = {}, threading.Lock()
 
 PRESETS = {
-    "sensitive": {"name": "ไว (จับเร็ว เตือนผิดได้มากขึ้น)",
+    "sensitive": {"name": "Sensitive (detects fast, more false alarms)",
                   "detector": {"margin": 1.1, "persist_s": 2, "quantile": 0.99, "min_sigma": 2.5, "cusum_h_min": 5}},
-    "balanced": {"name": "สมดุล (ค่าเริ่มต้น)",
+    "balanced": {"name": "Balanced (default)",
                  "detector": {k: DEFAULT_CONFIG["detector"][k] for k in
                               ("margin", "persist_s", "quantile", "min_sigma", "cusum_h_min")}},
-    "conservative": {"name": "ระวัง (เตือนผิดน้อย จับช้าลง)",
+    "conservative": {"name": "Conservative (few false alarms, slower detection)",
                      "detector": {"margin": 1.6, "persist_s": 5, "quantile": 0.999, "min_sigma": 4, "cusum_h_min": 15}},
 }
 
@@ -57,16 +57,16 @@ def validate(patch):
         if v is None:
             continue
         if not isinstance(v, (int, float)) or not lo <= v <= hi:
-            raise ValueError(f"{grp}.{key} ต้องอยู่ระหว่าง {lo} ถึง {hi}")
+            raise ValueError(f"{grp}.{key} must be between {lo} and {hi}")
     for (model, key), (lo, hi) in PARAM_RANGES.items():
         v = ((patch.get("model_params") or {}).get(model) or {}).get(key)
         if v is None:
             continue
         if not isinstance(v, (int, float)) or not lo <= v <= hi:
-            raise ValueError(f"{model}.{key} ต้องอยู่ระหว่าง {lo} ถึง {hi}")
+            raise ValueError(f"{model}.{key} must be between {lo} and {hi}")
     g = ((patch.get("model_params") or {}).get("ocsvm") or {}).get("gamma")
     if g is not None and g not in ("scale", "auto") and not (isinstance(g, (int, float)) and g > 0):
-        raise ValueError('ocsvm.gamma ต้องเป็น "scale", "auto" หรือจำนวนบวก')
+        raise ValueError('ocsvm.gamma must be "scale", "auto" or a positive number')
     return patch
 
 
@@ -101,7 +101,7 @@ def _stage1(cfg, use_ph, key, data_dir):
     runs, _ = load_runs(cfg, use_ph, data_dir, sel)
     sp = split_runs(runs, feats)
     if not sp["normal"]:
-        raise TrainError("ยังไม่มีรอบ normal ที่ใช้ได้")
+        raise TrainError("No usable normal runs yet")
 
     def fit(groups):
         return cls(**params).fit(np.vstack([X for g in groups for X, _ in g]), floors)
@@ -207,7 +207,7 @@ def _stage2(st, det, margin=None, with_drift=True):
 def preview(cfg, use_ph, key, settings, data_dir=DATA_DIR):
     """Metrics for the current config and for `settings` merged on top, plus a margin sweep."""
     if key not in CLASSES:
-        raise ValueError("ไม่รู้จักโมเดลนี้")
+        raise ValueError("Unknown model")
     validate(settings)
     cand_cfg = deep_merge(cfg, {k: v for k, v in settings.items() if k in ("detector", "floors", "model_params")})
     out = {"model": key}
@@ -238,7 +238,7 @@ def suggest_floors(cfg, use_ph, data_dir=DATA_DIR):
     normal = [r for r in runs if r["label"] == "normal"]
     sessions = sorted({r["session"] for r in normal})
     if len(sessions) < 3:
-        raise ValueError(f"ต้องมีน้ำปกติอย่างน้อย 3 session (ตอนนี้มี {len(sessions)})")
+        raise ValueError(f"At least 3 normal-water sessions are needed (currently {len(sessions)})")
     med = []
     for s in sessions:
         X = np.vstack([r["df"][feats].to_numpy(float) for r in normal if r["session"] == s])

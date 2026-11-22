@@ -22,7 +22,7 @@ def _error_text(e):
     if isinstance(e, urllib.error.HTTPError):
         return f"HTTP {e.code} {e.reason}"
     if isinstance(e, urllib.error.URLError):
-        return f"เชื่อมต่อไม่ได้: {e.reason}"
+        return f"Cannot connect: {e.reason}"
     return type(e).__name__
 
 

@@ -121,7 +121,7 @@ class LiveMonitor:
                 info = SENSORS[f]
                 trend.append({"sensor": f, "name": info["name"], "unit": info["unit"],
                               "rate_per_min": round(float(per_min), 4), "level": round(float(level[i]), 2),
-                              "text": f"{info['name']} ค่อยๆ {'เพิ่ม' if per_min > 0 else 'ลด'}ลง".replace("เพิ่มลง", "เพิ่มขึ้น"),
+                              "text": f"{info['name']} slowly {'rising' if per_min > 0 else 'falling'}",
                               "eta_min": round(float(eta), 1) if eta is not None and 0 < eta < 120 else None})
             out["drift"] = {"active": self.drifting, "level": round(float(level.max()), 2),
                             "trend": sorted(trend, key=lambda d: -d["level"])}

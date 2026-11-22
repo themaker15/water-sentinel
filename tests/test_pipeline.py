@@ -155,7 +155,7 @@ def test_unsteady_ramp_markers_and_drift(client):
     nxt = c.get("/api/runs").json()["next_run"]
     assert c.post("/api/record/start", json={"run": nxt, "label": "salt_ramp", "minutes": 2, "new_water": True}).status_code == 200
     assert wait(lambda: hub.rec and hub.rec["elapsed"] >= 40)
-    m = c.post("/api/record/mark", json={"text": "เติมน้ำเกลือ 1 mL", "dose": 1}).json()
+    m = c.post("/api/record/mark", json={"text": "Added 1 mL brine", "dose": 1}).json()
     assert m["ok"] and m["marker"]["kind"] == "dose"
     c.post("/api/sim", json={"scenario": "salt"})
     assert wait(lambda: hub.rec is None, 30)

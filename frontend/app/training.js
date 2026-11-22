@@ -3,8 +3,8 @@
    Loaded before app.js; uses its globals at call time. */
 
 const TR_SENS = ["temp_c", "tds_ppm", "turb_v", "ph"];
-const TR_MODELS = [["mspc", "MSPC (ล็อก: ใช้อธิบายสาเหตุและ drift)"], ["pca", "PCA"], ["iforest", "Isolation Forest"], ["ocsvm", "One-Class SVM"], ["lof", "LOF"], ["threshold", "Simple threshold (baseline)"]];
-const TR_ROLE_TXT = { train: "train: เทรน", test: "test: กันไว้ทดสอบ", anomaly: "anomaly: ทดสอบ", exclude: "ไม่ใช้" };
+const TR_MODELS = [["mspc", "MSPC (always on: used for causes and drift)"], ["pca", "PCA"], ["iforest", "Isolation Forest"], ["ocsvm", "One-Class SVM"], ["lof", "LOF"], ["threshold", "Simple threshold (baseline)"]];
+const TR_ROLE_TXT = { train: "train: train", test: "test: held-out test", anomaly: "anomaly: test", exclude: "Not used" };
 const TRSTATE = () => ({ runs: [], datasets: {}, files: {}, sensors: [], models: [], dataset: null, base: null, touched: false,
   label: "", session: "", q: "", onlyNew: false, onlyPh: false, check: null, seq: 0, inited: false, missing: 0 });
 
@@ -78,39 +78,39 @@ function renderTrainPicker() {
   if (!box) return;
   const labels = [...new Set(T.runs.map((r) => r.label))].sort(), sessions = [...new Set(T.runs.map((r) => r.session))];
   const m = S.st && S.st.model;
-  const prov = m && m.exists ? `โมเดลปัจจุบันเทรนด้วย: ${m.dataset ? `ชุด "${esc(m.dataset)}"` : "ข้อมูลทุกรอบที่ใช้ได้"} · ${m.n_files} ไฟล์ · เซนเซอร์ ${m.features.map((f) => SENSORS[f].name).join(", ")}
-      · โมเดล ${(m.models || []).length || 5} ตัว${(m.test_runs || []).length ? ` · รอบ test-only ${m.test_runs.length}` : ""}` : "ยังไม่มีโมเดลที่เทรนไว้";
+  const prov = m && m.exists ? `The current model was trained on: ${m.dataset ? `dataset "${esc(m.dataset)}"` : "all usable runs"} · ${m.n_files} files · sensors ${m.features.map((f) => SENSORS[f].name).join(", ")}
+      · ${(m.models || []).length || 5} models${(m.test_runs || []).length ? ` · ${m.test_runs.length} test-only runs` : ""}` : "No trained model yet";
   const dsNames = Object.keys(T.datasets);
   box.innerHTML = `
-    <div class="row"><div><h2>เลือกข้อมูลที่ใช้เทรน</h2><p class="hint" style="margin:0">${prov}</p></div></div>
+    <div class="row"><div><h2>Choose training data</h2><p class="hint" style="margin:0">${prov}</p></div></div>
     <div class="grid" style="grid-template-columns:repeat(auto-fit,minmax(260px,1fr));gap:14px;margin-top:10px">
-      <div><label class="f">ชุดข้อมูล (บันทึกไว้เรียกใช้ซ้ำ)</label>
-        <select id="trDs"><option value="">— ${T.base && !T.dataset ? `แก้ไขจากชุด "${esc(T.base)}"` : "ยังไม่ตั้งชื่อ"} —</option>${dsNames.map((n) => `<option value="${esc(n)}" ${T.dataset === n ? "selected" : ""}>${esc(n)} (${Object.values(T.datasets[n].files).filter((r) => r !== "exclude").length} รอบ)</option>`).join("")}</select>
-        <div class="row" style="margin-top:6px"><button class="btn ghost sm" id="trDsSave">บันทึกเป็นชุดข้อมูล…</button>
-          <button class="btn ghost sm" id="trDsDel" ${T.dataset ? "" : "disabled"} title="ลบเฉพาะชื่อชุด ไม่ลบข้อมูล">ลบชุดนี้</button></div>
-        ${T.missing ? `<p class="hint" style="margin:6px 0 0;color:var(--warn)">ชุดนี้อ้างถึงไฟล์ ${T.missing} ไฟล์ที่ไม่พบแล้ว (ถูกย้ายเก็บ?) จึงข้ามไป</p>` : ""}</div>
-      <div><label class="f">เซนเซอร์ที่ใช้ (อย่างน้อย 2)</label>
+      <div><label class="f">Dataset (saved for reuse)</label>
+        <select id="trDs"><option value="">— ${T.base && !T.dataset ? `Edited from dataset "${esc(T.base)}"` : "Unnamed"} —</option>${dsNames.map((n) => `<option value="${esc(n)}" ${T.dataset === n ? "selected" : ""}>${esc(n)} (${Object.values(T.datasets[n].files).filter((r) => r !== "exclude").length} runs)</option>`).join("")}</select>
+        <div class="row" style="margin-top:6px"><button class="btn ghost sm" id="trDsSave">Save as dataset…</button>
+          <button class="btn ghost sm" id="trDsDel" ${T.dataset ? "" : "disabled"} title="Deletes only the dataset name, not the data">Delete dataset</button></div>
+        ${T.missing ? `<p class="hint" style="margin:6px 0 0;color:var(--warn)">This dataset refers to ${T.missing} files that no longer exist (archived?), so they are skipped</p>` : ""}</div>
+      <div><label class="f">Sensors used (at least 2)</label>
         <div class="checks" id="trSens">${TR_SENS.map((k) => `<label><input type="checkbox" value="${k}" ${T.sensors.includes(k) ? "checked" : ""}> ${SENSORS[k].name}</label>`).join("")}</div>
-        <p class="hint" style="margin:4px 0 0">ติ๊ก pH แล้วรอบที่ไม่มีข้อมูล pH จะถูกข้าม</p></div>
-      <div><label class="f">โมเดลที่เทรนเปรียบเทียบ</label>
+        <p class="hint" style="margin:4px 0 0">With pH ticked, runs without pH data are skipped</p></div>
+      <div><label class="f">Models to train and compare</label>
         <div class="checks" id="trModels">${TR_MODELS.map(([k, n]) => `<label><input type="checkbox" value="${k}" ${T.models.includes(k) ? "checked" : ""} ${k === "mspc" ? "disabled" : ""}> ${esc(n)}</label>`).join("")}</div></div>
     </div>
-    <h3>รอบข้อมูล</h3>
+    <h3>Runs</h3>
     <div class="row" style="gap:8px">
-      <select id="trLabel" style="width:auto"><option value="">ทุกเงื่อนไข</option>${labels.map((l) => `<option ${T.label === l ? "selected" : ""}>${esc(l)}</option>`).join("")}</select>
-      <select id="trSession" style="width:auto"><option value="">ทุก session</option>${sessions.map((s) => `<option ${T.session === s ? "selected" : ""}>${esc(s)}</option>`).join("")}</select>
-      <input type="text" id="trQ" placeholder="ค้นหา (เลขรอบ/โน้ต)" value="${esc(T.q)}" style="width:170px">
-      <label class="chip ${T.onlyNew ? "on" : ""}" id="trNew">เฉพาะรอบใหม่ (ยังไม่เคยเทรน)</label>
-      <label class="chip ${T.onlyPh ? "on" : ""}" id="trPh">เฉพาะที่มี pH</label>
+      <select id="trLabel" style="width:auto"><option value="">All conditions</option>${labels.map((l) => `<option ${T.label === l ? "selected" : ""}>${esc(l)}</option>`).join("")}</select>
+      <select id="trSession" style="width:auto"><option value="">All sessions</option>${sessions.map((s) => `<option ${T.session === s ? "selected" : ""}>${esc(s)}</option>`).join("")}</select>
+      <input type="text" id="trQ" placeholder="Search (run no., note)" value="${esc(T.q)}" style="width:170px">
+      <label class="chip ${T.onlyNew ? "on" : ""}" id="trNew">New runs only (never trained)</label>
+      <label class="chip ${T.onlyPh ? "on" : ""}" id="trPh">Runs with pH only</label>
     </div>
-    <div class="row" style="gap:8px;margin-top:8px"><span class="hint" style="margin:0">ตั้งให้รอบที่แสดงอยู่:</span>
-      <select id="trBulk" style="width:auto"><option value="default">ค่าเริ่มต้น (normal→train, อื่นๆ→anomaly)</option><option value="exclude">ไม่ใช้</option><option value="test">normal → test (กันไว้ทดสอบ)</option></select>
-      <button class="btn ghost sm" id="trBulkGo">ใช้</button>
-      <button class="btn ghost sm" id="trLastTest" title="เอา normal ของ session ล่าสุดไปเป็นรอบทดสอบที่โมเดลไม่เคยเห็น">กัน session ล่าสุดไว้ทดสอบ</button></div>
-    <div class="table-wrap" style="margin-top:10px;max-height:380px"><table><thead><tr><th>รอบ</th><th>เงื่อนไข</th><th>เวลา</th><th class="num">แถว</th><th>pH</th><th>ใช้เป็น</th><th></th></tr></thead>
+    <div class="row" style="gap:8px;margin-top:8px"><span class="hint" style="margin:0">Set shown runs to:</span>
+      <select id="trBulk" style="width:auto"><option value="default">Default (normal→train, others→anomaly)</option><option value="exclude">Not used</option><option value="test">normal → test (held out)</option></select>
+      <button class="btn ghost sm" id="trBulkGo">Apply</button>
+      <button class="btn ghost sm" id="trLastTest" title="Use the normal runs of the latest session as test runs the model never sees">Hold out latest session</button></div>
+    <div class="table-wrap" style="margin-top:10px;max-height:380px"><table><thead><tr><th>Run</th><th>Condition</th><th>Time</th><th class="num">Rows</th><th>pH</th><th>Role</th><th></th></tr></thead>
       <tbody id="trBody"></tbody></table></div>
     <div id="trCheck" style="margin-top:10px"></div>
-    <div class="row" style="margin-top:10px"><button class="btn" id="btnTrain">เทรนโมเดล</button>
+    <div class="row" style="margin-top:10px"><button class="btn" id="btnTrain">Train models</button>
       <span class="hint" style="margin:0" id="trSummary"></span></div>
     <div id="trainMsg"></div>`;
   renderTrBody();
@@ -125,18 +125,18 @@ function renderTrBody() {
     if (r.session !== sess) {
       sess = r.session;
       const inS = T.runs.filter((x) => x.session === sess);
-      html += `<tr class="sess"><td colspan="7"><b>${esc(sess)}</b> <span class="hint" style="margin:0">${inS.length} รอบ · ${esc(inS[0].time)}</span></td></tr>`;
+      html += `<tr class="sess"><td colspan="7"><b>${esc(sess)}</b> <span class="hint" style="margin:0">${inS.length} runs · ${esc(inS[0].time)}</span></td></tr>`;
     }
     const role = T.files[r.file], ok = trUsable(r);
-    const why = !ok ? (r.excluded ? "ตั้งเป็นไม่ใช้ในหน้าเก็บข้อมูล" : r.label === "unlabeled" ? "ยังไม่ได้ตั้งชื่อเงื่อนไข" : "ไม่มีข้อมูล") : "";
-    html += `<tr class="${role === "exclude" ? "muted" : ""}"><td>${r.run ?? "-"}${hasModel && ok && !seen.has(r.file) ? ' <span class="tag" style="background:var(--info-bg);color:var(--info)">ใหม่</span>' : ""}</td>
+    const why = !ok ? (r.excluded ? "Set to not used on the Record tab" : r.label === "unlabeled" ? "No condition label yet" : "No data") : "";
+    html += `<tr class="${role === "exclude" ? "muted" : ""}"><td>${r.run ?? "-"}${hasModel && ok && !seen.has(r.file) ? ' <span class="tag" style="background:var(--info-bg);color:var(--info)">New</span>' : ""}</td>
       <td><span class="tag" style="background:${alpha(labelColor(r.label), .18)};color:${labelColor(r.label)}">${esc(r.label)}</span></td>
       <td>${esc(r.time)}</td><td class="num">${r.rows}</td><td>${r.has_ph ? "✓" : "–"}</td>
       <td>${ok ? `<select data-trrole="${esc(r.file)}" style="width:auto;padding:5px 8px">${trRoles(r).map((x) => `<option value="${x}" ${role === x ? "selected" : ""}>${TR_ROLE_TXT[x]}</option>`).join("")}</select>`
         : `<span class="hint" style="margin:0">${why}</span>`}</td>
       <td style="white-space:normal;max-width:240px" class="hint">${esc(r.note)}</td></tr>`;
   });
-  $("trBody").innerHTML = html || `<tr><td colspan="7" class="hint">ไม่มีรอบที่ตรงกับตัวกรอง</td></tr>`;
+  $("trBody").innerHTML = html || `<tr><td colspan="7" class="hint">No runs match the filters</td></tr>`;
   $("trBody").querySelectorAll("[data-trrole]").forEach((s) => (s.onchange = () => { T.files[s.dataset.trrole] = s.value; trChanged(); }));
 }
 
@@ -151,7 +151,7 @@ function trChanged() {
 function renderTrainPickerHead() {          // only the dataset hint changes while editing
   const T = S.tr, sel = $("trDs");
   if (!sel) return;
-  sel.options[0].textContent = `— ${T.base && !T.dataset ? `แก้ไขจากชุด "${T.base}"` : "ยังไม่ตั้งชื่อ"} —`;
+  sel.options[0].textContent = `— ${T.base && !T.dataset ? `Edited from dataset "${T.base}"` : "Unnamed"} —`;
   sel.value = T.dataset || "";
   $("trDsDel").disabled = !T.dataset;
 }
@@ -165,12 +165,12 @@ async function trCheck() {
     T.check = r.check;
   } catch (e) { if (seq === T.seq) T.check = { ok: false, blockers: [e.message], warnings: [], counts: {} }; }
   const c = T.check, n = c.counts || {};
-  $("trCheck").innerHTML = (n.train != null ? `<div class="chips" style="margin:0 0 6px"><span class="tag" style="background:var(--ok-bg);color:var(--ok)">train ${n.train || 0} รอบ (${n.sessions || 0} session)</span>
+  $("trCheck").innerHTML = (n.train != null ? `<div class="chips" style="margin:0 0 6px"><span class="tag" style="background:var(--ok-bg);color:var(--ok)">train ${n.train || 0} runs (${n.sessions || 0} sessions)</span>
       <span class="tag" style="background:var(--info-bg);color:var(--info)">test ${n.test || 0}</span><span class="tag" style="background:var(--bad-bg);color:var(--bad)">anomaly ${n.anomaly || 0}</span>
-      ${n.skipped ? `<span class="tag" style="background:var(--idle-bg);color:var(--muted)">ข้าม ${n.skipped}</span>` : ""}</div>` : "")
+      ${n.skipped ? `<span class="tag" style="background:var(--idle-bg);color:var(--muted)">skipped ${n.skipped}</span>` : ""}</div>` : "")
     + c.blockers.map((b) => `<div class="notice bad">⛔ ${esc(b)}</div>`).join("") + c.warnings.map((w) => `<div class="notice warn">⚠ ${esc(w)}</div>`).join("");
   $("btnTrain").disabled = !c.ok || !!(S.st && S.st.training);
-  $("trSummary").textContent = trIsDefault() ? "ใช้ค่าเริ่มต้น: ทุกรอบที่ใช้ได้ ทุกโมเดล" : `เลือกเอง: ${T.sensors.length} เซนเซอร์ · ${T.models.length} โมเดล`;
+  $("trSummary").textContent = trIsDefault() ? "Using defaults: all usable runs, all models" : `Custom: ${T.sensors.length} sensors · ${T.models.length} models`;
 }
 
 function wireTrainPicker() {
@@ -182,23 +182,23 @@ function wireTrainPicker() {
     renderTrainPicker(); trCheck();
   };
   $("trDsSave").onclick = async () => {
-    const name = prompt("ตั้งชื่อชุดข้อมูลนี้ (ไม่เกิน 40 ตัวอักษร)", T.dataset || T.base || "");
+    const name = prompt("Name this dataset (40 characters max)", T.dataset || T.base || "");
     if (!name) return;
-    const note = prompt("โน้ตสั้นๆ (ไม่บังคับ)", "") || "";
+    const note = prompt("Short note (optional)", "") || "";
     try {
       await api("/api/datasets", { name: name.trim(), files: T.files, sensors: T.sensors, models: T.models, note });
       T.datasets = (await api("/api/datasets")).datasets; T.dataset = name.trim(); T.base = T.dataset; T.touched = false;
-      toast("บันทึกชุดข้อมูลแล้ว"); renderTrainPicker(); trCheck();
+      toast("Dataset saved"); renderTrainPicker(); trCheck();
     } catch (e) { toast(e.message, 4500); }
   };
   $("trDsDel").onclick = async () => {
-    if (!T.dataset || !confirm(`ลบชื่อชุดข้อมูล "${T.dataset}" ?\n(ลบเฉพาะรายการชุด ไม่ลบไฟล์ข้อมูลใดๆ)`)) return;
-    try { await api("/api/datasets/delete", { name: T.dataset }); T.datasets = (await api("/api/datasets")).datasets; T.base = T.dataset; T.dataset = null; toast("ลบชุดข้อมูลแล้ว");
+    if (!T.dataset || !confirm(`Delete dataset name "${T.dataset}" ?\n(Only the dataset entry is deleted, no data files)`)) return;
+    try { await api("/api/datasets/delete", { name: T.dataset }); T.datasets = (await api("/api/datasets")).datasets; T.base = T.dataset; T.dataset = null; toast("Dataset deleted");
       renderTrainPicker(); trCheck(); } catch (e) { toast(e.message); }
   };
   $("trSens").onchange = (e) => {
     const v = [...document.querySelectorAll("#trSens input:checked")].map((i) => i.value);
-    if (v.length < 2) { e.target.checked = true; toast("เลือกเซนเซอร์อย่างน้อย 2 ตัว"); return; }
+    if (v.length < 2) { e.target.checked = true; toast("Select at least 2 sensors"); return; }
     T.sensors = TR_SENS.filter((k) => v.includes(k)); trChanged();
   };
   $("trModels").onchange = () => {
@@ -218,14 +218,14 @@ function wireTrainPicker() {
       const to = mode === "default" ? trDefaultRole(r) : mode === "exclude" ? "exclude" : (r.label === "normal" ? "test" : null);
       if (to && trRoles(r).includes(to)) { T.files[r.file] = to; n++; }
     });
-    toast(`ตั้งให้ ${n} รอบ`); trChanged();
+    toast(`Set ${n} runs`); trChanged();
   };
   $("trLastTest").onclick = () => {
     const normals = T.runs.filter((r) => trUsable(r) && r.label === "normal");
-    if (!normals.length) { toast("ยังไม่มีรอบ normal"); return; }
+    if (!normals.length) { toast("No normal runs yet"); return; }
     const last = normals[normals.length - 1].session;
     normals.forEach((r) => { if (T.files[r.file] !== "exclude") T.files[r.file] = r.session === last ? "test" : "train"; });
-    toast(`กัน session ${last} ไว้ทดสอบ`); trChanged();
+    toast(`Session ${last} held out for testing`); trChanged();
   };
   $("btnTrain").onclick = () => doTrain(false);
 }
@@ -238,13 +238,13 @@ function trainBody(force) {
 
 async function doTrain(force) {
   $("btnTrain").disabled = true;
-  $("trainMsg").innerHTML = `<p class="hint"><span class="spin"></span>กำลังเทรนและเปรียบเทียบ ${S.tr.models.length || 5} โมเดล (ประมาณ 10-60 วินาที)...</p>`;
+  $("trainMsg").innerHTML = `<p class="hint"><span class="spin"></span>Training and comparing ${S.tr.models.length || 5} models (about 10–60 s)…</p>`;
   try {
     const x = await fetch("/api/train", { method: "POST", headers: { "Content-Type": "application/json" }, body: JSON.stringify(trainBody(force)) });
     if (x.status === 401) { location.href = "/login"; return; }
     const r = await x.json();
-    $("trainMsg").innerHTML = (r.unchanged ? `<div class="notice">ข้อมูลและการตั้งค่าเหมือนการเทรนครั้งก่อน จึงไม่ได้เทรนซ้ำ <button class="btn ghost sm" id="btnForce">เทรนใหม่อยู่ดี</button></div>`
-      : r.ok ? `<div class="notice">เทรนเสร็จ ✓ ระบบเลือกโมเดลที่ดีที่สุดให้ใช้งานแล้ว</div>` : `<div class="notice bad">เทรนไม่สำเร็จ: ${esc(r.error || r.detail || "")}</div>`)
+    $("trainMsg").innerHTML = (r.unchanged ? `<div class="notice">Data and settings are the same as the last training, so nothing was retrained <button class="btn ghost sm" id="btnForce">Retrain anyway</button></div>`
+      : r.ok ? `<div class="notice">Training done ✓ The best model is now active</div>` : `<div class="notice bad">Training failed: ${esc(r.error || r.detail || "")}</div>`)
       + (r.log && r.log.length ? `<details><summary>log</summary><pre class="log">${esc(r.log.join("\n"))}</pre></details>` : "");
     const f = $("btnForce"); if (f) f.onclick = () => doTrain(true);
     S.emb.data = null;
@@ -263,7 +263,7 @@ function renderCompare() {
   const card = $("cmpCard"), h = (S.tuneMeta && S.tuneMeta.history) || [];
   if (h.length < 2) { card.hidden = true; return; }
   card.hidden = false;
-  const label = (x, i) => `#${i + 1} · ${x.created} · ${x.dataset ? x.dataset : "ทุกรอบ"} · ${x.n_files ?? "?"} ไฟล์ · ${(x.sensors || []).length || "?"} เซนเซอร์`;
+  const label = (x, i) => `#${i + 1} · ${x.created} · ${x.dataset ? x.dataset : "All runs"} · ${x.n_files ?? "?"} files · ${(x.sensors || []).length || "?"} sensors`;
   const opts = (sel) => h.map((x, i) => `<option value="${i}" ${i === sel ? "selected" : ""}>${esc(label(x, i))}</option>`).join("");
   const a0 = S.cmp ? S.cmp.a : h.length - 2, b0 = S.cmp ? S.cmp.b : h.length - 1;
   $("cmpA").innerHTML = opts(a0); $("cmpB").innerHTML = opts(b0);
@@ -277,28 +277,28 @@ function drawCompare() {
   const A = h[a], B = h[b];
   const diffs = [];
   const keysOf = (o) => Object.keys(o || {});
-  if (A.files_hash !== B.files_hash) diffs.push("เนื้อหาไฟล์ข้อมูล");
+  if (A.files_hash !== B.files_hash) diffs.push("Data file contents");
   if (A.roles && B.roles) {
     const n = [...new Set([...keysOf(A.roles), ...keysOf(B.roles)])].filter((f) => (A.roles[f] || "exclude") !== (B.roles[f] || "exclude")).length;
-    if (n) diffs.push(`บทบาทของ ${n} รอบ`);
-  } else diffs.push("บทบาทของแต่ละรอบ (ประวัติเก่าไม่ได้เก็บไว้)");
-  if ((A.sensors || []).join() !== (B.sensors || []).join()) diffs.push("เซนเซอร์");
+    if (n) diffs.push(`Roles of ${n} runs`);
+  } else diffs.push("Role of each run (not stored in older history)");
+  if ((A.sensors || []).join() !== (B.sensors || []).join()) diffs.push("Sensors");
   const same = !diffs.length;
   const names = (S.report && S.report.model_names) || {};
   const keys = [...new Set([...Object.keys(A.metrics), ...Object.keys(B.metrics)])];
-  const cols = [["false_alarm", "เตือนผิด", -1, pct], ["test_false_alarm", "เตือนผิดบนรอบ test", -1, pct], ["detection", "จับได้", 1, pct], ["auc", "AUC", 1, (v) => fmt(v, 3)]];
+  const cols = [["false_alarm", "False alarms", -1, pct], ["test_false_alarm", "False alarms on test runs", -1, pct], ["detection", "Detected", 1, pct], ["auc", "AUC", 1, (v) => fmt(v, 3)]];
   const cell = (va, vb, better, f) => {
     const d = va != null && vb != null ? vb - va : null;
     const c = d == null || Math.abs(d) < 1e-9 ? "" : (d * better > 0 ? "delta-good" : "delta-bad");
     return `<td class="num">${f(va)}</td><td class="num">${f(vb)} ${c ? `<span class="${c}">${d > 0 ? "▲" : "▼"}</span>` : ""}</td>`;
   };
-  const info = (x) => `${x.dataset ? `ชุด "${esc(x.dataset)}"` : "ทุกรอบที่ใช้ได้"} · ${x.n_files ?? "?"} ไฟล์ · ${(x.sensors || []).map((f) => SENSORS[f] ? SENSORS[f].name : f).join(", ") || "?"} · ${(x.models || []).length || "?"} โมเดล`;
+  const info = (x) => `${x.dataset ? `dataset "${esc(x.dataset)}"` : "All usable runs"} · ${x.n_files ?? "?"} files · ${(x.sensors || []).map((f) => SENSORS[f] ? SENSORS[f].name : f).join(", ") || "?"} · ${(x.models || []).length || "?"} models`;
   $("cmpBody").innerHTML = `
-    <div class="notice ${same ? "" : "warn"}">${same ? "ข้อมูล บทบาทของรอบ และเซนเซอร์เหมือนกัน: ที่ต่างคือการตั้งค่า/โมเดล เทียบตัวเลขกันตรง ๆ ได้" : `สองครั้งนี้ต่างกันที่: ${diffs.join(", ")} · ตัวเลขเทียบกันตรง ๆ ไม่ได้เต็มที่ เพราะชุดรอบที่ใช้ประเมินไม่เหมือนกัน`}</div>
+    <div class="notice ${same ? "" : "warn"}">${same ? "Same data, run roles and sensors: only settings/models differ, so the numbers compare directly" : `These two trainings differ in: ${diffs.join(", ")} · the numbers do not fully compare, because the evaluation runs differ`}</div>
     <p class="hint" style="margin:6px 0">A: ${info(A)}<br>B: ${info(B)}</p>
-    <div class="table-wrap"><table><thead><tr><th>โมเดล</th>${cols.map((c) => `<th class="num">${c[1]} A</th><th class="num">B</th>`).join("")}</tr></thead>
+    <div class="table-wrap"><table><thead><tr><th>Model</th>${cols.map((c) => `<th class="num">${c[1]} A</th><th class="num">B</th>`).join("")}</tr></thead>
       <tbody>${keys.map((k) => `<tr><td>${esc((names[k] || k).split(" (")[0])}</td>${cols.map(([m, , better, f]) => cell((A.metrics[k] || {})[m], (B.metrics[k] || {})[m], better, f)).join("")}</tr>`).join("")}</tbody></table></div>
-    <p class="legend-note">▲▼ = B เปลี่ยนจาก A · เขียว = ดีขึ้น แดง = แย่ลง · "–" = ไม่ได้วัด (เช่นไม่มีรอบ test)</p>`;
+    <p class="legend-note">▲▼ = change from A to B · green = better, red = worse · "–" = not measured (e.g. no test runs)</p>`;
 }
 
 
@@ -309,7 +309,7 @@ async function loadSnaps() {
   const list = d.snapshots || [];
   $("snapCard").hidden = !list.length;
   if (!list.length) return;
-  const names = { temp_c: "อุณหภูมิ", tds_ppm: "TDS", turb_v: "ความขุ่น", ph: "pH" };
+  const names = { temp_c: "Temperature", tds_ppm: "TDS", turb_v: "Turbidity", ph: "pH" };
   const activeKey = (d.active_features || []).join(",");
   let activeShown = false;
   const rows = list.map((s) => {
@@ -317,21 +317,21 @@ async function loadSnaps() {
     const m = (s.metrics || {})[s.best] || {};
     const isActive = !activeShown && s.created === d.active_created && f.join(",") === activeKey;
     if (isActive) activeShown = true;
-    const btn = isActive ? `<span class="pill" style="background:var(--ok-bg);color:var(--ok);border-color:transparent">✓ ใช้อยู่</span>`
-      : (isViewer() ? "" : `<button class="btn sm" data-snap="${esc(s.id)}">ใช้โมเดลนี้</button>`);
+    const btn = isActive ? `<span class="pill" style="background:var(--ok-bg);color:var(--ok);border-color:transparent">✓ In use</span>`
+      : (isViewer() ? "" : `<button class="btn sm" data-snap="${esc(s.id)}">Use this model</button>`);
     return `<tr${isActive ? ' style="background:var(--ok-bg)"' : ""}><td>${esc(s.created || s.id)}</td>
-      <td><b>${f.length}</b> เซนเซอร์<div class="hint" style="margin:0">${f.map((x) => names[x] || x).join(", ")}</div></td>
+      <td><b>${f.length}</b> Sensors<div class="hint" style="margin:0">${f.map((x) => names[x] || x).join(", ")}</div></td>
       <td>${esc(((S.report && S.report.model_names) || {})[s.best] || (s.best || "").toUpperCase())}</td>
       <td>${pct(m.false_alarm)}</td><td>${pct(m.detection)}</td><td>${m.auc == null ? "–" : fmt(m.auc, 3)}</td>
       <td>${s.n_sessions ?? "–"} / ${s.n_files ?? "–"}</td><td>${btn}</td></tr>`;
   }).join("");
-  $("snapBody").innerHTML = `<div style="overflow-x:auto"><table><thead><tr><th>เทรนเมื่อ</th><th>เซนเซอร์</th><th>โมเดลที่ดีที่สุด</th>
-    <th>เตือนผิด</th><th>จับได้</th><th>AUC</th><th>session / ไฟล์</th><th></th></tr></thead><tbody>${rows}</tbody></table></div>`;
+  $("snapBody").innerHTML = `<div style="overflow-x:auto"><table><thead><tr><th>Trained</th><th>Sensors</th><th>Best model</th>
+    <th>False alarms</th><th>Detected</th><th>AUC</th><th>Sessions / files</th><th></th></tr></thead><tbody>${rows}</tbody></table></div>`;
   $("snapBody").querySelectorAll("[data-snap]").forEach((b) => (b.onclick = async () => {
     b.disabled = true;
     try {
       await api("/api/snapshots/use", { id: b.dataset.snap });
-      toast("เปลี่ยนโมเดลแล้ว");
+      toast("Model switched");
       S.tileKeys = [];
       await loadReport(); loadSnaps(); refreshModelSel();
     } catch (e) { toast(e.message, 5000); b.disabled = false; }
@@ -350,10 +350,10 @@ async function refreshModelSel() {
   const activeKey = (d.active_features || []).join(",");
   let activeId = null;
   for (const s of list) if (!activeId && s.created === d.active_created && (s.features || []).join(",") === activeKey) activeId = s.id;
-  sel.innerHTML = (activeId ? "" : `<option value="" selected>โมเดลปัจจุบัน</option>`) + list.map((s) => {
+  sel.innerHTML = (activeId ? "" : `<option value="" selected>Current model</option>`) + list.map((s) => {
     const m = (s.metrics || {})[s.best] || {};
     const t = (s.created || s.id).slice(5);   // MM-DD HH:MM
-    return `<option value="${esc(s.id)}"${s.id === activeId ? " selected" : ""}>${(s.features || []).length} เซนเซอร์ · ${esc(t)} · จับได้ ${pct(m.detection)}</option>`;
+    return `<option value="${esc(s.id)}"${s.id === activeId ? " selected" : ""}>${(s.features || []).length} sensors · ${esc(t)} · detected ${pct(m.detection)}</option>`;
   }).join("");
   sel.hidden = false;
   sel.onchange = async () => {
@@ -361,7 +361,7 @@ async function refreshModelSel() {
     sel.disabled = true;
     try {
       await api("/api/snapshots/use", { id: sel.value });
-      toast("เปลี่ยนโมเดลแล้ว");
+      toast("Model switched");
       S.tileKeys = [];
       if (typeof loadReport === "function") loadReport();
       if (typeof loadSnaps === "function") loadSnaps();

@@ -15,7 +15,7 @@ import time
 
 URL_RE = re.compile(r"https://[a-z0-9-]+\.trycloudflare\.com")
 
-INSTALL_HINT = "ยังไม่ได้ติดตั้ง cloudflared: เปิด cmd แล้วรัน  winget install --id Cloudflare.cloudflared  แล้วเปิดโปรแกรมใหม่"
+INSTALL_HINT = "cloudflared is not installed: open cmd and run  winget install --id Cloudflare.cloudflared  then restart the app"
 
 
 def find_cloudflared():
@@ -75,7 +75,7 @@ class Tunnel:
         code = proc.wait()
         with self.lock:
             if self.proc is proc and code not in (0, None) and not self.error:
-                self.error = "cloudflared หยุดทำงาน: " + (" | ".join(t for t in tail if t)[-300:] or f"exit {code}")
+                self.error = "cloudflared stopped: " + (" | ".join(t for t in tail if t)[-300:] or f"exit {code}")
 
     def stop(self):
         with self.lock:

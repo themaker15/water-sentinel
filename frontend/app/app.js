@@ -9,9 +9,9 @@ const fmt = (v, d = 2) => (v == null || !isFinite(v) ? "–" : Number(v).toFixed
 
 const svg = (d) => `<svg viewBox="0 0 24 24" width="16" height="16" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true">${d}</svg>`;
 const SENSORS = {
-  temp_c: { name: "อุณหภูมิ", unit: "°C", dp: 2, icon: svg('<path d="M14 14.76V3.5a2.5 2.5 0 0 0-5 0v11.26a4.5 4.5 0 1 0 5 0z"/>') },
+  temp_c: { name: "Temperature", unit: "°C", dp: 2, icon: svg('<path d="M14 14.76V3.5a2.5 2.5 0 0 0-5 0v11.26a4.5 4.5 0 1 0 5 0z"/>') },
   tds_ppm: { name: "TDS", unit: "ppm", dp: 0, icon: svg('<path d="M12 2.7l5.7 5.7a8 8 0 1 1-11.4 0z"/><circle cx="10" cy="14" r="1"/><circle cx="14" cy="12" r="1"/><circle cx="13" cy="16.5" r="1"/>') },
-  turb_v: { name: "ความขุ่น", unit: "V", dp: 3, icon: svg('<path d="M4 8h12M4 12h16M4 16h10M8 20h10"/>') },
+  turb_v: { name: "Turbidity", unit: "V", dp: 3, icon: svg('<path d="M4 8h12M4 12h16M4 16h10M8 20h10"/>') },
   ph: { name: "pH", unit: "", dp: 2, icon: svg('<path d="M9 3h6M10 3v6L4.5 19a1.5 1.5 0 0 0 1.3 2h12.4a1.5 1.5 0 0 0 1.3-2L14 9V3"/><path d="M7 15h10"/>') },
 };
 const LABELS = ["normal", "salt_lvl1", "salt_lvl2", "baking_soda_lvl1", "starch_lvl1", "hot_water", "vinegar_lvl1"];
@@ -116,26 +116,26 @@ function initScoreChart() {
   mkChart("cScore", {
     type: "line",
     data: { labels: [], datasets: [
-      { label: "คะแนน", data: [], borderColor: css("--accent"), borderWidth: 2, pointRadius: 0, tension: .25, fill: true,
+      { label: "Score", data: [], borderColor: css("--accent"), borderWidth: 2, pointRadius: 0, tension: .25, fill: true,
         backgroundColor: alpha("#38bdf8", 0.12),
         segment: { borderColor: (c) => (c.p1.parsed.y > 1 ? css("--bad") : undefined) } },
-      { label: "เส้นเตือน", data: [], borderColor: css("--bad"), borderDash: [6, 5], borderWidth: 1.5, pointRadius: 0, fill: false },
+      { label: "Alarm line", data: [], borderColor: css("--bad"), borderDash: [6, 5], borderWidth: 1.5, pointRadius: 0, fill: false },
     ] },
     options: { interaction: { mode: "index", intersect: false }, spanGaps: false,
       plugins: { legend: { display: false }, tooltip: { callbacks: {
-        label: (c) => (c.datasetIndex ? "เส้นเตือน 1.00" : `คะแนน ${fmt(c.chart.$raw ? c.chart.$raw[c.dataIndex] : c.parsed.y)}`) } } },
+        label: (c) => (c.datasetIndex ? "Alarm line 1.00" : `Score ${fmt(c.chart.$raw ? c.chart.$raw[c.dataIndex] : c.parsed.y)}`) } } },
       scales: { x: { ticks: { maxTicksLimit: window.innerWidth < 600 ? 3 : 6, maxRotation: 0 }, grid: { display: false } },
         y: { type: "logarithmic", min: 0.01, suggestedMax: 3,
           ticks: { callback: (v) => ([0.01, 0.1, 1, 10, 100, 1000].includes(v) ? v : "") },
-          title: { display: true, text: "คะแนน / เส้นเตือน (log)" } } } },
+          title: { display: true, text: "Score / alarm line (log)" } } } },
   });
 }
 
 const HERO = {
-  normal: ["✅", "น้ำปกติ"], anomaly: ["⚠️", "ตรวจพบน้ำผิดปกติ!"], fault: ["🔧", "เซนเซอร์มีปัญหา"],
-  drifting: ["📈", "ค่ากำลังเปลี่ยนทีละน้อย"],
-  starting: ["⏳", "กำลังเริ่มวัด..."], off: ["💤", "ยังไม่ได้เปิดเฝ้าระวัง"], no_model: ["📋", "ยังไม่มีโมเดล"],
-  no_data: ["🔌", "ไม่มีข้อมูลจากเซนเซอร์"],
+  normal: ["✅", "Normal water"], anomaly: ["⚠️", "Abnormal water detected"], fault: ["🔧", "Sensor problem"],
+  drifting: ["📈", "Values drifting slowly"],
+  starting: ["⏳", "Starting measurement…"], off: ["💤", "Monitoring is off"], no_model: ["📋", "No model yet"],
+  no_data: ["🔌", "No data from the sensor"],
 };
 
 function renderLive(st) {
@@ -145,24 +145,24 @@ function renderLive(st) {
   if (!st.monitor_on && s !== "no_data") s = st.model.exists ? "off" : "no_model";
   const [icon, title] = HERO[s] || HERO.off;
   let sub = "";
-  if (s === "normal") sub = `คะแนน ${fmt(d.ratio)} (เตือนเมื่อเกิน 1.00)`;
-  else if (s === "anomaly") sub = (d.cause || []).map((c) => c.text).join(" · ") || "ค่าหลายเซนเซอร์เปลี่ยนพร้อมกัน";
-  else if (s === "drifting") sub = ((d.drift && d.drift.trend) || []).slice(0, 2).map(trendText).join(" · ") + " · ยังไม่ถึงเกณฑ์เตือน";
+  if (s === "normal") sub = `Score ${fmt(d.ratio)} (alarms above 1.00)`;
+  else if (s === "anomaly") sub = (d.cause || []).map((c) => c.text).join(" · ") || "Several sensors changed at once";
+  else if (s === "drifting") sub = ((d.drift && d.drift.trend) || []).slice(0, 2).map(trendText).join(" · ") + " · below the alarm line";
   else if (s === "fault") sub = d.fault_text;
-  else if (s === "starting") sub = d.left_s != null ? `รออีกประมาณ ${d.left_s} วินาทีเพื่อกรองสัญญาณรบกวน` : "กำลังเตรียมตัวกรองสัญญาณรบกวน";
-  else if (s === "off") sub = "เปิดสวิตช์ด้านขวาเพื่อเริ่มตรวจจับความผิดปกติแบบเรียลไทม์";
-  else if (s === "no_model") sub = "เก็บข้อมูลน้ำปกติอย่างน้อย 5 รอบ แล้วกดเทรนที่แท็บ \"เทรน & เปรียบเทียบโมเดล\"";
+  else if (s === "starting") sub = d.left_s != null ? `Waiting about ${d.left_s} s more to filter out noise` : "Preparing the noise filter";
+  else if (s === "off") sub = "Turn on the switch on the right to start real-time anomaly detection";
+  else if (s === "no_model") sub = "Record at least 5 normal-water runs, then press Train on the \"Train & compare\" tab";
   else if (s === "no_data") sub = st.link.msg;
   $("hero").className = "card hero span-12 s-" + s;
   $("heroIcon").textContent = icon; $("heroTitle").textContent = title; $("heroSub").textContent = sub;
   const tg = $("monitorToggle");
   if (document.activeElement !== tg) tg.checked = !!st.monitor_on;
   tg.disabled = !st.model.exists;
-  $("heroModel").textContent = st.model.exists ? `โมเดล: ${st.model.active_name}` : "";
+  $("heroModel").textContent = st.model.exists ? `Model: ${st.model.active_name}` : "";
   const ap = $("liveAlarmPill");
   ap.hidden = !(s === "anomaly" && !$("exploreBox").hidden);
-  ap.textContent = "⚠️ กำลังเตือนน้ำผิดปกติ — กดเพื่อกลับไปดูแบบสด";
-  document.title = s === "anomaly" ? "⚠️ ผิดปกติ · Water Sentinel" : "Water Sentinel";
+  ap.textContent = "⚠️ Abnormal water alarm — tap to go back to live view";
+  document.title = s === "anomaly" ? "⚠️ Abnormal · Water Sentinel" : "Water Sentinel";
 
   buildTiles(st.use_ph);
   const L = st.latest || {};
@@ -170,7 +170,7 @@ function renderLive(st) {
   if (stale && L.time) {
     const mins = Math.round((Date.now() / 1000 - L.time) / 60);
     staleNote.hidden = false;
-    staleNote.textContent = `ค่าด้านล่างเป็นค่าล่าสุดเมื่อ ${new Date(L.time * 1000).toLocaleString("th-TH")} (${mins < 1 ? "เมื่อสักครู่" : mins + " นาทีก่อน"}) ไม่ใช่ค่าปัจจุบัน`;
+    staleNote.textContent = `Values below are the last ones received at ${new Date(L.time * 1000).toLocaleString("en-GB")} (${mins < 1 ? "just now" : mins + " min ago"}), not current values`;
   } else staleNote.hidden = true;
   document.querySelectorAll("#tiles .tile").forEach((t) => t.classList.toggle("stale", stale));
   for (const k of S.tileKeys) {
@@ -187,7 +187,7 @@ function renderLive(st) {
     $("tr-" + k).textContent = tr && !stale ? (tr.rate_per_min > 0 ? "↗ " : "↘ ") + trendText(tr).replace(tr.text + " ", "") : "";
     const ch = S.charts["sp-" + k];
     const tail = S.hist.slice(-120);
-    ch.data.labels = tail.map((h) => new Date(h.t * 1000).toLocaleTimeString("th-TH", { hour12: false }));
+    ch.data.labels = tail.map((h) => new Date(h.t * 1000).toLocaleTimeString("en-GB", { hour12: false }));
     ch.data.datasets[0].data = tail.map((h) => h[k]);
     // never stretch tiny steps (e.g. 0.0625 °C) to full height: show at least one "floor" of range
     const vals = tail.map((h) => h[k]).filter((v) => v != null && isFinite(v));
@@ -196,21 +196,21 @@ function renderLive(st) {
       const span = Math.max(hi - lo, (S.cfg && S.cfg.floors[k]) || 0) * 1.1 || 1;
       ch.options.scales.y.min = mid - span / 2; ch.options.scales.y.max = mid + span / 2;
       const dp = SENSORS[k].dp, u = k === "turb_v" ? "V" : SENSORS[k].unit;
-      $("cap-" + k).innerHTML = `<span>ต่ำสุด <b>${fmt(lo, dp)}</b> · สูงสุด <b>${fmt(hi, dp)}</b> ${u}</span><span>2 นาทีล่าสุด</span>`;
+      $("cap-" + k).innerHTML = `<span>Min <b>${fmt(lo, dp)}</b> · Max <b>${fmt(hi, dp)}</b> ${u}</span><span>Last 2 min</span>`;
     }
     ch.update("none");
   }
 
   const r = stale ? null : d.ratio;
   $("gaugeBar").style.width = r == null ? "0%" : Math.max(0, Math.min(100, r * 50)) + "%";
-  $("ratioText").textContent = r == null ? (stale ? "ไม่มีข้อมูลสด" : "–") : `ตอนนี้ ${fmt(r)}`;
+  $("ratioText").textContent = r == null ? (stale ? "No live data" : "–") : `Now ${fmt(r)}`;
   const sc = S.charts.cScore;
   const tail = S.hist.slice(-600);
   const step = (d && d.interval_s) || (st.model && st.model.interval_s) || 1;
   const labels = [], vals = [], raw = [];
   tail.forEach((h, i) => {
     if (i && h.t - tail[i - 1].t > Math.max(3 * step, 8)) { labels.push(""); vals.push(null); raw.push(null); } // gap = break the line
-    labels.push(new Date(h.t * 1000).toLocaleTimeString("th-TH", { hour12: false }));
+    labels.push(new Date(h.t * 1000).toLocaleTimeString("en-GB", { hour12: false }));
     vals.push(h.ratio == null ? null : Math.max(h.ratio, 0.01));
     raw.push(h.ratio);
   });
@@ -228,8 +228,8 @@ function renderLive(st) {
 
 function trendText(t) {
   const dp = SENSORS[t.sensor] ? Math.max(SENSORS[t.sensor].dp, 1) : 2;
-  const r = `${t.rate_per_min > 0 ? "+" : ""}${fmt(t.rate_per_min, dp)} ${t.unit}/นาที`;
-  return `${t.text} ${r}` + (t.eta_min != null ? ` (ถึงเกณฑ์ใน ~${fmt(t.eta_min, 1)} นาที)` : "");
+  const r = `${t.rate_per_min > 0 ? "+" : ""}${fmt(t.rate_per_min, dp)} ${t.unit}/min`;
+  return `${t.text} ${r}` + (t.eta_min != null ? ` (reaches the alarm line in ~${fmt(t.eta_min, 1)} min)` : "");
 }
 
 function renderEvents(evs) {
@@ -250,13 +250,13 @@ function renderEvents(evs) {
   let day = null;
   const today = new Date().toISOString().slice(0, 10);
   $("events").innerHTML = rows.length ? rows.map((e) => {
-    const sep = e.date !== day ? `<li class="day">${e.date === today ? "วันนี้" : esc(e.date)}</li>` : "";
+    const sep = e.date !== day ? `<li class="day">${e.date === today ? "Today" : esc(e.date)}</li>` : "";
     day = e.date;
     return `${sep}<li><time>${esc(e.time)}</time><div>
       <div class="k-${e.kind}">${kindIcon[e.kind] || ""} ${esc(e.msg)}${e.count > 1 ? ` <span class="tag" style="background:var(--idle-bg)">×${e.count}</span>` : ""}</div>
       ${e.sent && e.sent.length ? `<div class="sent">${e.sent.map((x) => `${x.channel} ${x.ok ? "✓" : "✗ " + esc(x.error || "")}`).join(" · ")}</div>` : ""}
     </div></li>`;
-  }).join("") : `<li class="hint">ยังไม่มีเหตุการณ์</li>`;
+  }).join("") : `<li class="hint">No events yet</li>`;
 }
 
 /* ------------------------------------------------------------------ alerts in the browser */
@@ -279,18 +279,18 @@ function beep(freqs, dur = 0.18, gap = 0.08, vol = 0.25) {
 function onNewEvent(e) {
   if (e.kind === "anomaly") {
     beep([880, 660, 880, 660, 880]);
-    notify("⚠️ น้ำผิดปกติ", e.msg);
+    notify("⚠️ Abnormal water", e.msg);
   } else if (e.kind === "recovered") {
     beep([523, 784], 0.15);
-    notify("✅ กลับปกติ", e.msg);
+    notify("✅ Back to normal", e.msg);
   } else if (e.kind === "fault") {
     beep([300], 0.25, 0, 0.15);
   } else if (e.kind === "drift") {
     beep([523, 587], 0.12, 0.05, 0.15);
-    notify("📈 ค่ากำลังเปลี่ยนทีละน้อย", e.msg);
+    notify("📈 Values drifting slowly", e.msg);
   } else if (e.kind === "link_lost") {
     beep([440, 330], 0.3);
-    notify("🔌 ขาดการเชื่อมต่อเซนเซอร์", e.msg);
+    notify("🔌 Sensor link lost", e.msg);
   }
 }
 function notify(title, body) {
@@ -303,12 +303,12 @@ async function askNotify() {
   if ("Notification" in window && Notification.permission === "default") await Notification.requestPermission();
   beep([660, 880], 0.12);
   notifState();
-  toast("เปิดเสียงเตือนแล้ว");
+  toast("Alarm sound on");
 }
 function notifState() {
   const el = $("notifState");
-  if (!("Notification" in window)) { el.textContent = "เบราว์เซอร์นี้ไม่รองรับ"; return; }
-  el.textContent = { granted: "อนุญาตแล้ว ✓", denied: "ถูกปฏิเสธ: เปิดในการตั้งค่าเบราว์เซอร์", default: "ยังไม่ได้อนุญาต" }[Notification.permission];
+  if (!("Notification" in window)) { el.textContent = "This browser does not support notifications"; return; }
+  el.textContent = { granted: "Allowed ✓", denied: "Blocked: allow it in the browser settings", default: "Not allowed yet" }[Notification.permission];
 }
 
 /* ------------------------------------------------------------------ polling */
@@ -323,7 +323,7 @@ async function poll() {
     renderHeader(st); renderLive(st); renderRec(st);
     if ($("v-settings").classList.contains("on")) updateTurbLive();
   } catch (e) {
-    $("linkText").textContent = "ติดต่อโปรแกรมไม่ได้ (ปิดอยู่?)"; $("linkDot").className = "dot bad";
+    $("linkText").textContent = "Cannot reach the app (is it closed?)"; $("linkDot").className = "dot bad";
   }
   setTimeout(poll, isViewer() ? 2000 : 1000);
 }
@@ -332,16 +332,16 @@ function renderHeader(st) {
   $("linkDot").className = "dot " + (st.link.ok && !stale ? "ok" : "bad");
   $("linkText").textContent = st.link.msg;
   const m = st.model;
-  let mp = !m.exists ? "ไม่มีโมเดล" : `โมเดล ${m.features.length} เซนเซอร์ · ${m.created}`;
-  if (m.exists && m.mismatch) mp = "⚠ โมเดลไม่ตรงกับเซนเซอร์ที่เลือก: เทรนใหม่";
-  else if (m.exists && m.new_runs) mp = `⚠ มีข้อมูลใหม่ ${m.new_runs} รอบที่ยังไม่ได้เทรน`;
+  let mp = !m.exists ? "No model" : `Model: ${m.features.length} sensors · ${m.created}`;
+  if (m.exists && m.mismatch) mp = "⚠ The model does not match the selected sensors: retrain";
+  else if (m.exists && m.new_runs) mp = `⚠ ${m.new_runs} new runs not trained on yet`;
   $("modelPill").textContent = mp;
   $("modelPill").classList.toggle("warn", !!(m.exists && (m.mismatch || m.new_runs)));
   const key = m.exists ? m.created + "|" + (m.features || []).join(",") : "";
   if (key !== S.modelSelKey && typeof refreshModelSel === "function") { S.modelSelKey = key; refreshModelSel(); }
   const fw = $("fwPill");
   fw.hidden = st.firmware !== "legacy";
-  fw.textContent = "firmware เก่า (วัดทุก 2.3 s): แนะนำอัปโหลด water_sentinel.ino";
+  fw.textContent = "Old firmware (samples every 2.3 s): upload water_sentinel.ino";
 }
 
 /* ------------------------------------------------------------------ record */
@@ -351,25 +351,25 @@ async function loadRuns() {
     if (!S.runDirty && !(S.st && S.st.rec)) $("recRun").value = r.next_run;
     const runs = r.runs;
     S.runs = runs; S.archived = r.archived || [];
-    const src = { record: "บันทึก", auto: "อัตโนมัติ (ตอนเตือน)", snapshot: "ย้อนหลัง" };
+    const src = { record: "Save", auto: "Automatic (at alarm)", snapshot: "Saved from history" };
     $("runsBody").innerHTML = runs.length ? runs.slice().reverse().map((x) => `<tr class="${x.excluded ? "muted" : ""}"><td>${x.run ?? "-"}</td>
       <td><span class="tag" style="background:${alpha(labelColor(x.label), .18)};color:${labelColor(x.label)}">${esc(x.label)}</span>
-        ${x.label === "unlabeled" ? '<span class="tag" style="background:var(--warn-bg);color:var(--warn)">ต้องตั้งชื่อ</span>' : ""}</td>
+        ${x.label === "unlabeled" ? '<span class="tag" style="background:var(--warn-bg);color:var(--warn)">Needs a label</span>' : ""}</td>
       <td>${esc(x.time)}</td><td>${esc(x.session)}</td><td class="num">${x.rows}</td><td class="num">${fmt(x.interval_s, 1)} s</td>
       <td>${esc(src[x.source] || x.source)}</td><td style="white-space:normal;min-width:140px">${esc(x.note)}</td>
-      <td><button class="btn ghost sm" data-edit="${esc(x.file)}">แก้</button>
-        <button class="btn ghost sm" data-excl="${esc(x.file)}">${x.excluded ? "ใช้" : "ไม่ใช้"}</button>
-        <button class="btn ghost sm" data-arch="${esc(x.file)}" title="ย้ายไป data/_excluded (ไม่ได้ลบ)">ย้ายเก็บ</button></td></tr>`).join("")
-      : `<tr><td colspan="9" class="hint">ยังไม่มีข้อมูล</td></tr>`;
+      <td><button class="btn ghost sm" data-edit="${esc(x.file)}">Edit</button>
+        <button class="btn ghost sm" data-excl="${esc(x.file)}">${x.excluded ? "Apply" : "Not used"}</button>
+        <button class="btn ghost sm" data-arch="${esc(x.file)}" title="Move to data/_excluded (not deleted)">Archive</button></td></tr>`).join("")
+      : `<tr><td colspan="9" class="hint">No data yet</td></tr>`;
     const usable = runs.filter((x) => x.rows > 0 && !x.excluded);
     const nN = usable.filter((x) => x.label === "normal").length;
     const nA = usable.filter((x) => !["normal", "unlabeled"].includes(x.label)).length;
     const nU = usable.filter((x) => x.label === "unlabeled").length;
     const nS = new Set(usable.filter((x) => x.label === "normal").map((x) => x.session)).size;
-    $("runsSummary").textContent = `normal ${nN} รอบ (${nS} session น้ำ) · anomaly ${nA} รอบ${nU ? ` · รอตั้งชื่อ ${nU}` : ""}`;
-    $("recPlan").innerHTML = `<div class="notice ${nS >= 3 ? "" : "warn"}">${nS >= 3 ? "✓" : "○"} น้ำปกติ ${nS}/3 session (คนละแก้ว/คนละวัน) · ${nN} รอบ</div>
-      <div class="notice ${nA >= 2 ? "" : "warn"}">${nA >= 2 ? "✓" : "○"} anomaly ${nA} รอบ (แนะนำอย่างน้อย 2 ชนิด)</div>
-      ${nU ? `<div class="notice warn">มี ${nU} รอบที่ระบบบันทึกไว้ตอนเตือน กด "แก้" เพื่อตั้งชื่อเงื่อนไข (เช่น salt_lvl1) แล้วจะใช้เทรนได้</div>` : ""}`;
+    $("runsSummary").textContent = `normal ${nN} runs (${nS} water sessions) · anomaly ${nA} runs${nU ? ` · ${nU} waiting for a label` : ""}`;
+    $("recPlan").innerHTML = `<div class="notice ${nS >= 3 ? "" : "warn"}">${nS >= 3 ? "✓" : "○"} Normal water ${nS}/3 sessions (different cup or day) · ${nN} runs</div>
+      <div class="notice ${nA >= 2 ? "" : "warn"}">${nA >= 2 ? "✓" : "○"} anomaly ${nA} runs (at least 2 kinds recommended)</div>
+      ${nU ? `<div class="notice warn">${nU} runs were saved automatically during alarms. Press "Edit" to give each a condition (e.g. salt_lvl1) so it can be used for training</div>` : ""}`;
     $("runsBody").querySelectorAll("[data-edit]").forEach((b) => (b.onclick = () => editRun(b.dataset.edit)));
     $("runsBody").querySelectorAll("[data-excl]").forEach((b) => (b.onclick = () => toggleExcluded(b.dataset.excl)));
     $("runsBody").querySelectorAll("[data-arch]").forEach((b) => (b.onclick = () => archiveRun(b.dataset.arch)));
@@ -379,11 +379,11 @@ async function loadRuns() {
 }
 async function editRun(file) {
   const x = S.runs.find((y) => y.file === file);
-  const label = prompt(`เงื่อนไข (label) ของรอบ ${x.run}\nเช่น normal, salt_lvl1, starch_lvl1`, x.label);
+  const label = prompt(`Condition (label) for run ${x.run}\ne.g. normal, salt_lvl1, starch_lvl1`, x.label);
   if (label === null) return;
-  const note = prompt("โน้ต (แก้วไหน เติมอะไร เท่าไร)", x.note || "");
+  const note = prompt("Note (which cup, what was added, how much)", x.note || "");
   if (note === null) return;
-  try { await api("/api/run/meta", { file, label: label.trim(), note: note.trim() }); toast("บันทึกแล้ว"); loadRuns(); }
+  try { await api("/api/run/meta", { file, label: label.trim(), note: note.trim() }); toast("Saved"); loadRuns(); }
   catch (e) { toast(e.message, 4000); }
 }
 
@@ -399,13 +399,13 @@ function renderRec(st) {
     $("recBar").style.width = Math.min(100, (r.elapsed / (r.minutes * 60)) * 100) + "%";
     $("recRows").textContent = r.rows;
     $("recTime").innerHTML = `${Math.round(r.elapsed)}<span class="u">/ ${Math.round(r.minutes * 60)} s</span>`;
-    $("recMsg").textContent = `กำลังเก็บรอบ ${r.run} (${r.label})`;
+    $("recMsg").textContent = `Recording run ${r.run} (${r.label})`;
   } else if (S.recWas) {
     $("recBar").style.width = "0%";
-    $("recMsg").textContent = st.rec_last ? `เสร็จ: รอบ ${st.rec_last.run} ได้ ${st.rec_last.rows} แถว` : "";
+    $("recMsg").textContent = st.rec_last ? `Done: run ${st.rec_last.run}, ${st.rec_last.rows} rows` : "";
     S.runDirty = false;
     loadRuns();
-    toast("เก็บข้อมูลรอบนี้เสร็จแล้ว");
+    toast("This run is finished");
   }
   S.recWas = !!r;
 }
@@ -425,7 +425,7 @@ async function loadReport() {
 function renderReport() {
   const box = $("modelResults");
   const rep = S.report;
-  if (!rep) { box.innerHTML = `<div class="card"><p class="hint">ยังไม่มีผลการเทรน</p></div>`; return; }
+  if (!rep) { box.innerHTML = `<div class="card"><p class="hint">No training results yet</p></div>`; return; }
   const meta = rep.meta, models = Object.values(rep.models);
   const active = S.st && S.st.model.active;
   const hasAnom = meta.anomaly_runs.length > 0;
@@ -435,34 +435,34 @@ function renderReport() {
   box.innerHTML = `
   <div class="grid">
     <div class="card span-12">
-      <div class="row"><h2>🏆 แนะนำ: ${esc(best.name)}</h2><span class="spacer"></span><span class="hint" style="margin:0">เทรนเมื่อ ${esc(meta.created)}</span></div>
-      <p class="hint">${hasAnom ? "เลือกจาก balanced accuracy สูงสุด โดย false alarm ไม่เกิน 2%" : "ยังไม่มีรอบ anomaly จึงเทียบได้เฉพาะ false alarm (เก็บรอบ anomaly เพื่อเทียบครบ)"}</p>
+      <div class="row"><h2>🏆 Recommended: ${esc(best.name)}</h2><span class="spacer"></span><span class="hint" style="margin:0">Trained ${esc(meta.created)}</span></div>
+      <p class="hint">${hasAnom ? "Highest balanced accuracy with false alarms at or below 2%" : "No anomaly runs yet, so only false alarms can be compared (record anomaly runs for a full comparison)"}</p>
       <div class="kpis">
-        <div class="tile"><div class="k">เตือนผิดบนน้ำปกติ</div><div class="v ${cls(best.false_alarm, false, .02)}">${pct(best.false_alarm)}</div></div>
-        ${hasTest ? `<div class="tile"><div class="k">เตือนผิดบนรอบ test (ไม่เคยเห็นเลย)</div><div class="v ${cls(best.test_false_alarm, false, .02)}">${pct(best.test_false_alarm)}</div></div>` : ""}
-        <div class="tile"><div class="k">จับน้ำผิดปกติได้</div><div class="v ${cls(best.detection, true, .8)}">${pct(best.detection)}</div></div>
+        <div class="tile"><div class="k">False alarms on normal water</div><div class="v ${cls(best.false_alarm, false, .02)}">${pct(best.false_alarm)}</div></div>
+        ${hasTest ? `<div class="tile"><div class="k">False alarms on held-out test runs</div><div class="v ${cls(best.test_false_alarm, false, .02)}">${pct(best.test_false_alarm)}</div></div>` : ""}
+        <div class="tile"><div class="k">Abnormal water detected</div><div class="v ${cls(best.detection, true, .8)}">${pct(best.detection)}</div></div>
         <div class="tile"><div class="k">AUC</div><div class="v">${fmt(best.auc, 3)}</div></div>
-        <div class="tile"><div class="k">เวลาจนเตือน (มัธยฐาน)</div><div class="v">${best.delay_s == null ? "–" : Math.round(best.delay_s)}<span class="u">s</span></div></div>
+        <div class="tile"><div class="k">Time to alarm (median)</div><div class="v">${best.delay_s == null ? "–" : Math.round(best.delay_s)}<span class="u">s</span></div></div>
       </div>
-      <h3>เตือนล่วงหน้าเมื่อค่าค่อยๆ เปลี่ยน (drift)</h3>
+      <h3>Early warning while values drift</h3>
       <div class="kpis">
-        <div class="tile"><div class="k">เตือนล่วงหน้าผิด บนน้ำปกติ</div><div class="v">${rep.models.mspc.drift_false_per_hour == null ? "–" : fmt(rep.models.mspc.drift_false_per_hour, 1)}<span class="u">ครั้ง/ชม.</span></div></div>
-        <div class="tile"><div class="k">เตือนล่วงหน้าก่อนเกณฑ์ (มัธยฐาน)</div><div class="v">${rep.models.mspc.drift_lead_s == null ? "–" : Math.round(rep.models.mspc.drift_lead_s)}<span class="u">s</span></div></div>
-        <div class="tile"><div class="k">ความไว CUSUM (h ต่อเซนเซอร์)</div><div class="v" style="font-size:18px">${(meta.drift ? meta.drift.h : []).map((h, i) => `${SENSORS[meta.features[i]].name} ${fmt(h, 0)}`).join(" · ") || "–"}</div></div>
+        <div class="tile"><div class="k">False early warnings on normal water</div><div class="v">${rep.models.mspc.drift_false_per_hour == null ? "–" : fmt(rep.models.mspc.drift_false_per_hour, 1)}<span class="u">per hour</span></div></div>
+        <div class="tile"><div class="k">Early-warning lead time (median)</div><div class="v">${rep.models.mspc.drift_lead_s == null ? "–" : Math.round(rep.models.mspc.drift_lead_s)}<span class="u">s</span></div></div>
+        <div class="tile"><div class="k">CUSUM sensitivity (h per sensor)</div><div class="v" style="font-size:18px">${(meta.drift ? meta.drift.h : []).map((h, i) => `${SENSORS[meta.features[i]].name} ${fmt(h, 0)}`).join(" · ") || "–"}</div></div>
       </div>
-      <p class="hint" style="margin-top:12px">ข้อมูล: normal ${meta.normal_runs.length} รอบ${(meta.test_runs || []).length ? ` (+ test-only ${meta.test_runs.length})` : ""}, anomaly ${meta.anomaly_runs.length} รอบ, ${meta.n_train_rows} แถวสำหรับเทรน${meta.dataset ? ` · ชุดข้อมูล "${esc(meta.dataset)}"` : ""} ·
-        เซนเซอร์: ${meta.features.map((f) => SENSORS[f].name).join(", ")} · วิธีประเมิน: ${esc(meta.protocol)}</p>
-      ${!hasAnom ? `<div class="notice warn">ยังไม่มีรอบน้ำผิดปกติ จึงยังวัดไม่ได้ว่าแต่ละโมเดลจับได้ดีแค่ไหน (ตอนนี้เทียบได้แค่การเตือนผิด)
-        <button class="btn ghost sm" onclick="showTab('record')">ไปเก็บรอบ anomaly</button></div>` : ""}
-      ${(meta.n_sessions ?? 0) < 3 ? `<div class="notice warn">น้ำปกติมาจาก ${meta.n_sessions ?? "?"} session (${meta.normal_runs.length} รอบ): รอบที่ใช้น้ำเดียวกันไม่เป็นอิสระต่อกัน ผลเตือนผิดจึงดูดีเกินจริง ควรเก็บน้ำปกติให้ได้อย่างน้อย 3 session</div>` : ""}
-      ${rep.skipped.length ? `<details><summary>ไฟล์ที่ไม่ได้ใช้ (${rep.skipped.length})</summary><ul class="hint">${rep.skipped.map((s) => `<li>${esc(s.file)}: ${esc(s.reason)}</li>`).join("")}</ul></details>` : ""}
+      <p class="hint" style="margin-top:12px">Data: normal ${meta.normal_runs.length} runs${(meta.test_runs || []).length ? ` (+ test-only ${meta.test_runs.length})` : ""}, anomaly ${meta.anomaly_runs.length} runs, ${meta.n_train_rows} training rows${meta.dataset ? ` · dataset "${esc(meta.dataset)}"` : ""} ·
+        Sensors: ${meta.features.map((f) => SENSORS[f].name).join(", ")} · evaluation: ${esc(meta.protocol)}</p>
+      ${!hasAnom ? `<div class="notice warn">No abnormal-water runs yet, so detection cannot be measured (only false alarms can be compared for now)
+        <button class="btn ghost sm" onclick="showTab('record')">Record anomaly runs</button></div>` : ""}
+      ${(meta.n_sessions ?? 0) < 3 ? `<div class="notice warn">Normal water comes from ${meta.n_sessions ?? "?"} sessions (${meta.normal_runs.length} runs): runs in the same water are not independent, so false-alarm results look better than they are. Record at least 3 sessions of normal water</div>` : ""}
+      ${rep.skipped.length ? `<details><summary>Unused files (${rep.skipped.length})</summary><ul class="hint">${rep.skipped.map((s) => `<li>${esc(s.file)}: ${esc(s.reason)}</li>`).join("")}</ul></details>` : ""}
     </div>
     <div class="card span-12">
-      <h2>เปรียบเทียบโมเดล</h2>
-      <p class="hint">ประเมินแบบ leave-one-run-out: ทุกตัวเลขมาจากรอบที่โมเดลไม่เคยเห็นตอนเทรน · กด "ใช้" เพื่อเลือกโมเดลที่ใช้เฝ้าระวังจริง</p>
+      <h2>Model comparison</h2>
+      <p class="hint">Leave-one-run-out evaluation: every number comes from runs the model never saw in training · Press "Use" to choose the model used for monitoring</p>
       <div class="table-wrap"><table>
-        <thead><tr><th>โมเดล</th><th class="num">เตือนผิด ↓</th>${hasTest ? '<th class="num">เตือนผิดบนรอบ test ↓</th>' : ""}<th class="num">จับได้ ↑</th><th class="num">Balanced acc ↑</th><th class="num">AUC ↑</th>
-          <th class="num">เวลาจนเตือน</th><th class="num">รอบ anomaly ที่จับได้</th><th class="num">ความเร็ว/ค่า</th><th></th></tr></thead>
+        <thead><tr><th>Model</th><th class="num">False alarms ↓</th>${hasTest ? '<th class="num">False alarms on test runs ↓</th>' : ""}<th class="num">Detected ↑</th><th class="num">Balanced acc ↑</th><th class="num">AUC ↑</th>
+          <th class="num">Time to alarm</th><th class="num">Anomaly runs caught</th><th class="num">Speed/sample</th><th></th></tr></thead>
         <tbody>${models.map((m) => `<tr class="${m.key === meta.best ? "best" : ""}">
           <td><span class="tag" style="background:${alpha(MODEL_COLORS[m.key], .18)};color:${MODEL_COLORS[m.key]}">●</span> ${esc(m.name)}${m.key === meta.best ? " 🏆" : ""}</td>
           <td class="num ${cls(m.false_alarm, false, .02)}">${pct(m.false_alarm)}</td>
@@ -472,23 +472,23 @@ function renderReport() {
           <td class="num">${m.delay_s == null ? "–" : Math.round(m.delay_s) + " s"}</td>
           <td class="num">${hasAnom ? `${m.runs_caught}/${meta.anomaly_runs.length}` : "–"}</td>
           <td class="num">${m.score_us < 1000 ? Math.round(m.score_us) + " µs" : (m.score_us / 1000).toFixed(1) + " ms"}</td>
-          <td>${m.key === active ? `<span class="tag" style="background:${alpha("#22c55e", .2)};color:var(--ok)">ใช้งานอยู่</span>`
-            : `<button class="btn ghost sm" data-use="${m.key}">ใช้</button>`}</td></tr>`).join("")}</tbody></table></div>
+          <td>${m.key === active ? `<span class="tag" style="background:${alpha("#22c55e", .2)};color:var(--ok)">In use</span>`
+            : `<button class="btn ghost sm" data-use="${m.key}">Use</button>`}</td></tr>`).join("")}</tbody></table></div>
       <div class="chart-box" style="margin-top:14px"><canvas id="cCompare"></canvas></div>
-      <details><summary>ความหมายของตัวชี้วัด</summary><ul class="hint" style="line-height:1.8">
-        <li><b>เตือนผิด (false alarm)</b>: สัดส่วนเวลาที่เตือนทั้งที่เป็นน้ำปกติ วัดบนรอบ normal ที่กันไว้ไม่ให้โมเดลเห็น</li>
-        <li><b>จับได้ (detection)</b>: สัดส่วนเวลาที่เตือนระหว่างรอบ anomaly (รวมช่วงที่สารยังผสมไม่ทั่ว จึงไม่ถึง 100%)</li>
-        <li><b>Balanced accuracy</b> = (1 − เตือนผิด + จับได้) / 2 ไม่ลำเอียงตามจำนวนข้อมูลแต่ละฝั่ง</li>
-        <li><b>AUC</b>: ความสามารถแยกปกติ/ผิดปกติโดยไม่ขึ้นกับเส้นเตือน ถ้า AUC สูงแต่เตือนผิดเยอะ แปลว่าโมเดลแยกได้ แต่เส้นเตือนตั้งแคบไป</li>
-        <li><b>เวลาจนเตือน</b>: วินาทีจากเหตุการณ์ "เติมสาร" (หรือจากเริ่มรอบ anomaly) ถึงการเตือนครั้งแรก</li>
-        <li><b>รอบที่มีเหตุการณ์เติมสาร</b>: ช่วงก่อนเติมนับเป็นน้ำปกติ (ใช้วัดการเตือนผิด) ช่วงหลังเติมนับเป็นน้ำผิดปกติ</li>
-        <li><b>Drift (CUSUM)</b>: สะสมความต่างเล็กๆ ที่ไปทางเดียวต่อเนื่อง เตือนล่วงหน้าก่อนถึงเกณฑ์หลัก โดยไม่ขยับค่าอ้างอิงตาม (ไม่ "ชิน" กับการปนเปื้อนช้าๆ)</li></ul></details>
+      <details><summary>What the metrics mean</summary><ul class="hint" style="line-height:1.8">
+        <li><b>False alarm</b>: share of time the model alarms on normal water, measured on normal runs held out from training</li>
+        <li><b>Detection</b>: share of time the model alarms during anomaly runs (includes the time before the additive is mixed in, so it never reaches 100%)</li>
+        <li><b>Balanced accuracy</b> = (1 − false alarm + detection) / 2, not biased by how much data each side has</li>
+        <li><b>AUC</b>: how well normal and abnormal are separated, independent of the alarm line. High AUC with many false alarms means the model separates well but the line is too tight</li>
+        <li><b>Time to alarm</b>: seconds from the event "Additive" (or from the start of the anomaly run) to the first alarm</li>
+        <li><b>Runs with additive events</b>: time before the first addition counts as normal water (for false alarms), time after counts as abnormal</li>
+        <li><b>Drift (CUSUM)</b>: accumulates small differences that keep going the same way, warning before the main alarm line, without moving the baseline (so it does not get "used to" slow contamination)</li></ul></details>
     </div>
     <div class="card span-12">
-      <h2>ผลรายรอบ (โมเดลสุดท้ายที่เทรนด้วย normal ทุกรอบ)</h2>
-      <p class="hint">รอบ normal ที่เป็น train ในตารางนี้ถูกใช้เทรนแล้ว ตัวเลขจึงดูดีกว่าความจริง (รอบ test ไม่เคยถูกใช้เทรน) ใช้ตารางเปรียบเทียบด้านบนเป็นหลัก</p>
-      <div class="table-wrap"><table><thead><tr><th>รอบ</th><th>เงื่อนไข</th><th class="num">แถว</th><th class="num">ค่าเซนเซอร์ผิดพลาด</th>
-        ${models.map((m) => `<th class="num">${esc(m.key.toUpperCase())}</th>`).join("")}<th class="num">เตือนหลังเติม</th><th class="num">เตือนล่วงหน้า</th><th class="num">ปริมาณต่ำสุด</th><th>ที่เปลี่ยนมากสุด</th></tr></thead>
+      <h2>Per-run results (final model trained on every normal run)</h2>
+      <p class="hint">Normal runs marked train in this table were used for training, so their numbers look better than reality (test runs never were). Use the comparison table above as the main result</p>
+      <div class="table-wrap"><table><thead><tr><th>Run</th><th>Condition</th><th class="num">Rows</th><th class="num">Sensor errors</th>
+        ${models.map((m) => `<th class="num">${esc(m.key.toUpperCase())}</th>`).join("")}<th class="num">Alarm after addition</th><th class="num">Early warning</th><th class="num">Minimum dose</th><th>Biggest change</th></tr></thead>
         <tbody>${rep.runs.map((r) => `<tr><td>${r.run_id}</td>
           <td><span class="tag" style="background:${alpha(labelColor(r.label), .18)};color:${labelColor(r.label)}">${esc(r.label)}</span>${r.role === "test" ? ' <span class="tag" style="background:var(--info-bg);color:var(--info)">test</span>' : ""}</td>
           <td class="num">${r.rows}</td><td class="num">${r.faults || ""}</td>
@@ -498,18 +498,18 @@ function renderReport() {
           <td class="num">${r.lead_s != null ? Math.round(r.lead_s) + " s" : "–"}</td>
           <td class="num">${r.min_dose != null ? fmt(r.min_dose, 1) : "–"}</td>
           <td>${(r.cause || []).map((c) => esc(c.text)).join(", ")}</td></tr>`).join("")}</tbody></table></div>
-      <p class="hint" style="margin-top:8px">"เตือนหลังเติม" นับจากเหตุการณ์ "เติมสาร" ถ้ามี (ไม่งั้นนับจากต้นรอบ) · "เตือนล่วงหน้า" = drift เตือนก่อนเกณฑ์หลักกี่วินาที · "ปริมาณต่ำสุด" = ปริมาณสะสมตอนเริ่มเตือน</p>
+      <p class="hint" style="margin-top:8px">"Alarm after addition" counted from the event "Additive" if any (otherwise from the start of the run) · "Early warning" = how many seconds drift warns before the main alarm · "Minimum dose" = cumulative dose when the alarm starts</p>
     </div>
     ${causeModelHtml(meta)}
   </div>`;
   box.querySelectorAll("[data-use]").forEach((b) => (b.onclick = async () => {
-    try { await api("/api/model", { key: b.dataset.use }); toast("เปลี่ยนโมเดลแล้ว"); setTimeout(renderReport, 1200); } catch (e) { toast(e.message); }
+    try { await api("/api/model", { key: b.dataset.use }); toast("Model switched"); setTimeout(renderReport, 1200); } catch (e) { toast(e.message); }
   }));
   mkChart("cCompare", {
     type: "bar",
     data: { labels: models.map((m) => m.name.split(" (")[0]), datasets: [
-      { label: "เตือนผิด (%)", data: models.map((m) => (m.false_alarm ?? 0) * 100), backgroundColor: alpha("#ef4444", .75), borderRadius: 6 },
-      { label: "จับได้ (%)", data: models.map((m) => (m.detection ?? 0) * 100), backgroundColor: alpha("#22c55e", .75), borderRadius: 6 },
+      { label: "False alarms (%)", data: models.map((m) => (m.false_alarm ?? 0) * 100), backgroundColor: alpha("#ef4444", .75), borderRadius: 6 },
+      { label: "Detected (%)", data: models.map((m) => (m.detection ?? 0) * 100), backgroundColor: alpha("#22c55e", .75), borderRadius: 6 },
       { label: "AUC × 100", data: models.map((m) => (m.auc ?? 0) * 100), backgroundColor: alpha("#3b82f6", .75), borderRadius: 6 },
     ] },
     options: { scales: { y: { min: 0, max: 100 }, x: { grid: { display: false } } }, plugins: { legend: { position: "bottom" } } },
@@ -540,10 +540,10 @@ function drawTimeline() {
     const pts = run.t.map((t, i) => ({ x: off + t - run.t[0], y: Math.max(run.ratio[i], 0.01), run: run.run_id, label: run.label }));
     ticks.push({ x: off, text: `#${run.run_id}` });
     off += (run.t[run.t.length - 1] - run.t[0]) + 25;
-    ds.push({ label: `รอบ ${run.run_id} · ${run.label}`, data: pts, borderColor: labelColor(run.label), backgroundColor: labelColor(run.label),
+    ds.push({ label: `Run ${run.run_id} · ${run.label}`, data: pts, borderColor: labelColor(run.label), backgroundColor: labelColor(run.label),
       borderWidth: 1.6, pointRadius: 0, tension: .2 });
   }
-  ds.push({ label: "เส้นเตือน", data: [{ x: 0, y: 1 }, { x: off, y: 1 }], borderColor: css("--text"), borderDash: [6, 5], borderWidth: 1.2, pointRadius: 0 });
+  ds.push({ label: "Alarm line", data: [{ x: 0, y: 1 }, { x: off, y: 1 }], borderColor: css("--text"), borderDash: [6, 5], borderWidth: 1.2, pointRadius: 0 });
   mkChart("cTimeline", {
     type: "line", data: { datasets: ds },
     options: { parsing: true, interaction: { mode: "nearest", intersect: false },
@@ -553,8 +553,8 @@ function drawTimeline() {
         return !lab || d.datasets.findIndex((x) => x.label.split(" · ")[1] === lab) === it.datasetIndex;
       }, generateLabels: (ch) => Chart.defaults.plugins.legend.labels.generateLabels(ch).map((l) => ({ ...l, text: l.text.includes(" · ") ? l.text.split(" · ")[1] : l.text })) } },
         tooltip: { callbacks: { label: (c) => `${c.dataset.label}: ${fmt(c.parsed.y)}` } } },
-      scales: { x: { type: "linear", title: { display: true, text: "เวลา (วินาที) · รอบเรียงต่อกัน" }, grid: { display: false } },
-        y: { type: "logarithmic", min: 0.01, title: { display: true, text: "คะแนน / เส้นเตือน (log)" } } } },
+      scales: { x: { type: "linear", title: { display: true, text: "Time (s) · runs placed end to end" }, grid: { display: false } },
+        y: { type: "logarithmic", min: 0.01, title: { display: true, text: "Score / alarm line (log)" } } } },
   });
 }
 
@@ -591,7 +591,7 @@ function setupRunDetail() {
   const ids = rep.runs.map((r) => String(r.run_id)).filter((id) => rep.series && rep.series[id]);
   if (sel.options.length !== ids.length) {
     sel.innerHTML = rep.runs.filter((r) => ids.includes(String(r.run_id)))
-      .map((r) => `<option value="${r.run_id}">รอบ ${r.run_id} · ${esc(r.label)}</option>`).join("");
+      .map((r) => `<option value="${r.run_id}">Run ${r.run_id} · ${esc(r.label)}</option>`).join("");
     const firstAnom = rep.runs.find((r) => r.role === "anomaly" && ids.includes(String(r.run_id)));
     if (firstAnom) sel.value = String(firstAnom.run_id);
     sel.onchange = drawRunDetail;
@@ -625,7 +625,7 @@ function drawRunDetail() {
       label: SENSORS[k].name, data: ser.t.map((t, i) => ({ x: t, y: share[i][j] })), borderColor: sensorColors[k],
       backgroundColor: alpha(sensorColors[k], 0.6), fill: j === 0 ? "origin" : "-1", pointRadius: 0, borderWidth: 1, tension: .2, spanGaps: false })) },
     options: { parsing: true, plugins: { legend: { position: "bottom" }, vlines: { lines, bands } },
-      scales: { x: { type: "linear", title: { display: true, text: "เวลา (s)" } }, y: { stacked: true, min: 0, max: 1, ticks: { callback: (v) => Math.round(v * 100) + "%" } } } },
+      scales: { x: { type: "linear", title: { display: true, text: "Time (s)" } }, y: { stacked: true, min: 0, max: 1, ticks: { callback: (v) => Math.round(v * 100) + "%" } } } },
   });
   const n = ser.pc.length;
   const thr = rep.meta.thresholds.mspc;
@@ -633,8 +633,8 @@ function drawRunDetail() {
   mkChart("cTraj", {
     type: "scatter",
     data: { datasets: [
-      { label: "ขอบเขตน้ำปกติ", data: ell, showLine: true, borderColor: css("--text"), borderDash: [5, 4], borderWidth: 1.2, pointRadius: 0 },
-      { label: `รอบ ${id}`, data: ser.pc.map((p) => ({ x: p[0], y: p[1] })), showLine: true, borderWidth: 1,
+      { label: "Normal-water boundary", data: ell, showLine: true, borderColor: css("--text"), borderDash: [5, 4], borderWidth: 1.2, pointRadius: 0 },
+      { label: `Run ${id}`, data: ser.pc.map((p) => ({ x: p[0], y: p[1] })), showLine: true, borderWidth: 1,
         borderColor: alpha(labelColor(row.label), 0.4),
         pointRadius: 3, pointBackgroundColor: ser.pc.map((_, i) => alpha(labelColor(row.label), 0.15 + 0.85 * i / Math.max(1, n - 1))), pointBorderWidth: 0 },
     ] },
@@ -642,12 +642,12 @@ function drawRunDetail() {
   });
   const m = row.models.mspc;
   $("rdSummary").innerHTML = [
-    `เงื่อนไข <b>${esc(row.label)}</b>, ${row.rows} แถว, ทุก ${row.dt} s`,
-    row.t_dose != null ? `เติมสารที่ ${fmt(row.t_dose, 0)} s` : "",
-    m.first_alarm_s != null ? `MSPC เตือนหลัง ${Math.round(m.first_alarm_s)} s` : (row.role === "anomaly" ? "MSPC ไม่เตือน" : ""),
-    row.drift_first_s != null ? `drift เตือนหลัง ${Math.round(row.drift_first_s)} s` : "",
-    row.min_dose != null ? `ปริมาณต่ำสุดที่จับได้ ${fmt(row.min_dose, 1)}` : "",
-    (row.change_points_s || []).length ? `change point ที่ ${row.change_points_s.map((x) => Math.round(x) + " s").join(", ")}` : "",
+    `Condition <b>${esc(row.label)}</b>, ${row.rows} rows, every ${row.dt} s`,
+    row.t_dose != null ? `Additive at ${fmt(row.t_dose, 0)} s` : "",
+    m.first_alarm_s != null ? `MSPC alarms after ${Math.round(m.first_alarm_s)} s` : (row.role === "anomaly" ? "MSPC does not alarm" : ""),
+    row.drift_first_s != null ? `Drift warns after ${Math.round(row.drift_first_s)} s` : "",
+    row.min_dose != null ? `Smallest dose detected ${fmt(row.min_dose, 1)}` : "",
+    (row.change_points_s || []).length ? `Change points at ${row.change_points_s.map((x) => Math.round(x) + " s").join(", ")}` : "",
   ].filter(Boolean).join(" · ");
 }
 
@@ -658,22 +658,22 @@ function drawDose() {
     if (S.charts.cDose) { S.charts.cDose.destroy(); delete S.charts.cDose; }
     const c = $("cDose"), g = c.getContext("2d"); g.clearRect(0, 0, c.width, c.height);
     g.fillStyle = css("--muted"); g.font = "14px " + css("--font");
-    g.fillText("ยังไม่มีรอบที่บันทึก \"เติมสาร\" พร้อมปริมาณ: เก็บรอบแบบค่อยๆ เติม แล้วกดบันทึกเหตุการณ์ทุกครั้งที่เติม", 16, 36);
+    g.fillText("No runs with recorded \"additive\" events and doses yet: record a gradual-addition run and press Mark event each time you add", 16, 36);
     return;
   }
   const doseAt = (markers, t) => markers.filter((m) => typeof m.dose === "number" && m.t_s <= t).reduce((a, m) => a + m.dose, 0);
   const ds = runs.map((r) => {
     const tl = rep.timelines.mspc.find((x) => x.run_id === r.run_id);
-    return { label: `รอบ ${r.run_id} ${r.label}` + (r.min_dose != null ? ` · จับได้ที่ ${fmt(r.min_dose, 1)}` : " · ไม่เตือน"),
+    return { label: `Run ${r.run_id} ${r.label}` + (r.min_dose != null ? ` · detected at ${fmt(r.min_dose, 1)}` : " · no alarm"),
       data: tl.t.map((t, i) => ({ x: doseAt(r.markers, t), y: Math.max(tl.ratio[i], 0.01) })),
       borderColor: labelColor(r.label), backgroundColor: labelColor(r.label), showLine: true, pointRadius: 2, borderWidth: 1.5 };
   });
   const maxX = Math.max(...ds.flatMap((d) => d.data.map((p) => p.x)), 1);
-  ds.push({ label: "เส้นเตือน", data: [{ x: 0, y: 1 }, { x: maxX, y: 1 }], borderColor: css("--text"), borderDash: [6, 5], showLine: true, pointRadius: 0, borderWidth: 1.2 });
+  ds.push({ label: "Alarm line", data: [{ x: 0, y: 1 }, { x: maxX, y: 1 }], borderColor: css("--text"), borderDash: [6, 5], showLine: true, pointRadius: 0, borderWidth: 1.2 });
   mkChart("cDose", { type: "scatter", data: { datasets: ds },
     options: { plugins: { legend: { position: "bottom" } },
-      scales: { x: { title: { display: true, text: "ปริมาณที่เติมสะสม (หน่วยตามที่บันทึก เช่น mL)" } },
-        y: { type: "logarithmic", min: 0.01, title: { display: true, text: "คะแนน / เส้นเตือน (log)" } } } } });
+      scales: { x: { title: { display: true, text: "Cumulative dose added (in the unit you recorded, e.g. mL)" } },
+        y: { type: "logarithmic", min: 0.01, title: { display: true, text: "Score / alarm line (log)" } } } } });
 }
 
 function drawRoc() {
@@ -685,10 +685,10 @@ function drawRoc() {
   if (!ds.length) {
     const c = $("cRoc"); if (S.charts.cRoc) { S.charts.cRoc.destroy(); delete S.charts.cRoc; }
     const g = c.getContext("2d"); g.clearRect(0, 0, c.width, c.height); g.fillStyle = css("--muted");
-    g.font = "14px " + css("--font"); g.fillText("ต้องมีรอบ anomaly ก่อนจึงวาด ROC ได้", 20, 40);
+    g.font = "14px " + css("--font"); g.fillText("Record an anomaly run first to draw the ROC curve", 20, 40);
     return;
   }
-  ds.push({ label: "สุ่ม", data: [{ x: 0, y: 0 }, { x: 1, y: 1 }], borderColor: css("--muted"), borderDash: [4, 4], showLine: true, pointRadius: 0, borderWidth: 1 });
+  ds.push({ label: "Random", data: [{ x: 0, y: 0 }, { x: 1, y: 1 }], borderColor: css("--muted"), borderDash: [4, 4], showLine: true, pointRadius: 0, borderWidth: 1 });
   mkChart("cRoc", { type: "scatter", data: { datasets: ds },
     options: { plugins: { legend: { position: "bottom" } },
       scales: { x: { min: 0, max: 1, title: { display: true, text: "False positive rate" } }, y: { min: 0, max: 1, title: { display: true, text: "True positive rate" } } } } });
@@ -701,8 +701,8 @@ function setupScatter() {
     $("scX").innerHTML = opts; $("scY").innerHTML = opts;
     $("scX").value = "tds_ppm"; $("scY").value = f.includes("turb_v") ? "turb_v" : f[0];
     const zb = document.createElement("button");
-    zb.className = "btn ghost sm"; zb.id = "scZoom"; zb.textContent = "ดูทั้งหมด";
-    zb.onclick = () => { S.scZoom = !S.scZoom; zb.textContent = S.scZoom ? "ดูทั้งหมด" : "ซูมน้ำปกติ"; drawScatter(); };
+    zb.className = "btn ghost sm"; zb.id = "scZoom"; zb.textContent = "Show all";
+    zb.onclick = () => { S.scZoom = !S.scZoom; zb.textContent = S.scZoom ? "Show all" : "Zoom to normal water"; drawScatter(); };
     $("scY").after(zb);
   }
   drawScatter();
@@ -730,7 +730,7 @@ function drawScatter() {
   let lim = {};
   if (ix !== iy) {
     const el = ellipse([mu[ix], mu[iy]], [[cov[ix][ix], cov[ix][iy]], [cov[iy][ix], cov[iy][iy]]], rep.meta.thresholds.mspc);
-    ds.push({ label: "ขอบเขตน้ำปกติ (MSPC)", data: el, showLine: true, borderColor: css("--text"), borderDash: [5, 4], borderWidth: 1.5, pointRadius: 0, backgroundColor: "transparent" });
+    ds.push({ label: "Normal-water boundary (MSPC)", data: el, showLine: true, borderColor: css("--text"), borderDash: [5, 4], borderWidth: 1.5, pointRadius: 0, backgroundColor: "transparent" });
     if (S.scZoom) {
       const xs = el.map((p) => p.x), ys = el.map((p) => p.y);
       const pad = (lo, hi) => [lo - (hi - lo) * 1.2, hi + (hi - lo) * 1.2];
@@ -747,18 +747,18 @@ async function drawEmbedding(force) {
   if (!S.report) return;
   const m = S.emb.m;
   if (force || !S.emb.data || S.emb.data.method !== m) {
-    $("embNote").innerHTML = `<span class="spin"></span>กำลังคำนวณ ${m.toUpperCase()} (t-SNE/UMAP อาจใช้ 5-30 วินาที)...`;
+    $("embNote").innerHTML = `<span class="spin"></span>Computing ${m.toUpperCase()} (t-SNE/UMAP can take 5–30 s)…`;
     try { S.emb.data = await api(`/api/embedding?method=${m}`); }
     catch (e) { $("embNote").textContent = e.message; S.emb.data = null; return; }
   }
   const E = S.emb.data;
-  $("embNote").textContent = `${E.note} · ${E.xy.length} จุด · ${E.seconds}s`;
+  $("embNote").textContent = `${E.note} · ${E.xy.length} points · ${E.seconds}s`;
   const groups = {};
   E.xy.forEach((p, i) => {
-    const key = S.emb.c === "label" ? E.label[i] : (E.alarm[i] ? "เตือน" : "ไม่เตือน");
+    const key = S.emb.c === "label" ? E.label[i] : (E.alarm[i] ? "Alarm" : "No alarm");
     (groups[key] = groups[key] || []).push({ x: p[0], y: p[1] });
   });
-  const colorOf = (k) => (k === "เตือน" ? "#ef4444" : k === "ไม่เตือน" ? "#22c55e" : labelColor(k));
+  const colorOf = (k) => (k === "Alarm" ? "#ef4444" : k === "No alarm" ? "#22c55e" : labelColor(k));
   mkChart("cEmbed", { type: "scatter",
     data: { datasets: Object.entries(groups).map(([k, pts]) => ({ label: k, data: pts, backgroundColor: alpha(colorOf(k), .65), pointRadius: 3.2, borderWidth: 0 })) },
     options: { plugins: { legend: { position: "bottom" }, tooltip: { enabled: false } },
@@ -768,18 +768,18 @@ async function drawEmbedding(force) {
 
 /* ------------------------------------------------------------------ tuning (WP4) */
 const INSTANT = [
-  ["margin", "ระยะเผื่อของเส้นเตือน", 1.0, 3.0, 0.05, "มาก = เตือนยากขึ้น"],
-  ["persist_s", "ต้องเกินเส้นต่อเนื่อง (วินาที)", 1, 15, 1, "มาก = กันสัญญาณกระชากได้ดี แต่ช้าลง"],
-  ["release", "เลิกเตือนเมื่อต่ำกว่า (สัดส่วนของเส้น)", 0.5, 0.95, 0.05, ""],
-  ["ewma_lambda", "EWMA λ ต่อวินาที", 0.05, 1.0, 0.05, "น้อย = เรียบกว่า ช้ากว่า"],
-  ["quantile", "quantile ของน้ำปกติ", 0.99, 0.999, 0.001, ""],
-  ["min_sigma", "MSPC: เตือนเมื่อห่างอย่างน้อย (เท่าของ floor)", 1.5, 6, 0.1, ""],
-  ["cusum_k", "Drift: ไม่นับความต่างที่น้อยกว่า (เท่าของ floor)", 0.25, 2, 0.05, ""],
-  ["cusum_h_min", "Drift: ความไวขั้นต่ำ h (z·วินาที)", 2, 40, 1, "น้อย = เตือนล่วงหน้าไวขึ้น"],
+  ["margin", "Alarm line margin", 1.0, 3.0, 0.05, "higher = harder to alarm"],
+  ["persist_s", "Must stay above the line for (s)", 1, 15, 1, "higher = ignores spikes better, but slower"],
+  ["release", "Stop alarming below (fraction of the line)", 0.5, 0.95, 0.05, ""],
+  ["ewma_lambda", "EWMA λ per second", 0.05, 1.0, 0.05, "lower = smoother, slower"],
+  ["quantile", "Normal-water quantile", 0.99, 0.999, 0.001, ""],
+  ["min_sigma", "MSPC: alarm at a distance of at least (× floor)", 1.5, 6, 0.1, ""],
+  ["cusum_k", "Drift: ignore differences smaller than (× floor)", 0.25, 2, 0.05, ""],
+  ["cusum_h_min", "Drift: minimum sensitivity h (z·s)", 2, 40, 1, "lower = earlier warnings"],
 ];
-const PARAMS = { pca: [["var_target", "PCA: สัดส่วนความแปรปรวน", 0.5, 0.999, 0.01]],
-  iforest: [["n_estimators", "จำนวนต้นไม้", 50, 500, 10]], ocsvm: [["nu", "ν (สัดส่วนนอกขอบ)", 0.001, 0.2, 0.001]],
-  lof: [["n_neighbors", "จำนวนเพื่อนบ้าน", 5, 60, 1]], mspc: [] };
+const PARAMS = { pca: [["var_target", "PCA: variance kept", 0.5, 0.999, 0.01]],
+  iforest: [["n_estimators", "Number of trees", 50, 500, 10]], ocsvm: [["nu", "ν (outlier share)", 0.001, 0.2, 0.001]],
+  lof: [["n_neighbors", "Number of neighbours", 5, 60, 1]], mspc: [] };
 
 function tuneSettings() {
   const det = {}, floors = {}, mp = {};
@@ -829,8 +829,8 @@ function renderTuneInputs() {
   const mp = (cfg.model_params || {})[key] || {};
   $("tuneRefit").innerHTML = feats.map((f) => `<div><label class="f">floor ${SENSORS[f].name} (${SENSORS[f].unit || "-"})</label>
       <input type="number" step="any" data-g="floors" data-k="${f}" value="${cfg.floors[f]}"></div>`).join("")
-    + `<div><label class="f">median (วินาที)</label><input type="number" step="any" data-g="detector" data-k="median_s" value="${det.median_s}"></div>
-       <div><label class="f">ตัดช่วงเริ่มต้น (วินาที)</label><input type="number" step="any" data-g="detector" data-k="warmup_s" value="${det.warmup_s}"></div>`
+    + `<div><label class="f">Median window (s)</label><input type="number" step="any" data-g="detector" data-k="median_s" value="${det.median_s}"></div>
+       <div><label class="f">Trim the start of each run (s)</label><input type="number" step="any" data-g="detector" data-k="warmup_s" value="${det.warmup_s}"></div>`
     + (PARAMS[key] || []).map(([k, label, lo, hi, step]) => `<div><label class="f">${label}</label>
       <input type="number" min="${lo}" max="${hi}" step="${step}" data-g="param" data-k="${k}" value="${mp[k] ?? ""}"></div>`).join("");
   document.querySelectorAll("#tuneRefit input").forEach((i) => (i.onchange = schedulePreview));
@@ -843,7 +843,7 @@ function schedulePreview() {
 
 async function runPreview() {
   const seq = (S.tuneSeq = (S.tuneSeq || 0) + 1);
-  $("tuneStatus").innerHTML = '<span class="spin"></span>กำลังคำนวณ...';
+  $("tuneStatus").innerHTML = '<span class="spin"></span>Computing…';
   try {
     const r = await api("/api/tune/preview", { model: $("tuneModel").value, settings: tuneSettings() });
     if (seq !== S.tuneSeq) return;            // a newer preview is on its way
@@ -855,28 +855,28 @@ async function runPreview() {
 function renderPreview(r) {
   const a = r.current, b = r.candidate;
   const rows = [
-    ["เตือนผิดบนน้ำปกติ", "false_alarm", pct, -1], ["จับน้ำผิดปกติได้", "detection", pct, 1],
+    ["False alarms on normal water", "false_alarm", pct, -1], ["Abnormal water detected", "detection", pct, 1],
     ["Balanced accuracy", "balanced_acc", pct, 1],
-    ["เวลาจนเตือน", "delay_s", (v) => (v == null ? "–" : Math.round(v) + " s"), -1],
-    ["drift เตือนผิด/ชม.", "drift_false_per_hour", (v) => (v == null ? "–" : fmt(v, 1)), -1],
-    ["drift เตือนล่วงหน้า", "drift_lead_s", (v) => (v == null ? "–" : Math.round(v) + " s"), 1],
+    ["Time to alarm", "delay_s", (v) => (v == null ? "–" : Math.round(v) + " s"), -1],
+    ["Drift false warnings/hour", "drift_false_per_hour", (v) => (v == null ? "–" : fmt(v, 1)), -1],
+    ["Drift early warning", "drift_lead_s", (v) => (v == null ? "–" : Math.round(v) + " s"), 1],
   ];
   $("tuneCompare").innerHTML = rows.map(([label, k, f, better]) => {
     const d = a[k] != null && b[k] != null ? b[k] - a[k] : null;
     const cls = d == null || Math.abs(d) < 1e-9 ? "" : (d * better > 0 ? "delta-good" : "delta-bad");
     return `<tr><td>${label}</td><td class="num">${f(a[k])}</td><td class="num">${f(b[k])} ${cls ? `<span class="${cls}">${d > 0 ? "▲" : "▼"}</span>` : ""}</td></tr>`;
-  }).join("") + (a.detection == null ? `<tr><td colspan="3" class="hint">ยังไม่มีรอบ anomaly จึงเห็นแค่การเตือนผิด</td></tr>` : "");
+  }).join("") + (a.detection == null ? `<tr><td colspan="3" class="hint">No anomaly runs yet, so only false alarms are shown</td></tr>` : "");
   const lim = (L, f) => { const v = L && L[f]; if (!v) return "–";
     const u = SENSORS[f].unit, dp = Math.max(SENSORS[f].dp, 1);
-    return `${v[0] == null ? "ไม่เตือน" : "−" + fmt(v[0], dp)} / ${v[1] == null ? "ไม่เตือน" : "+" + fmt(v[1], dp)} ${u}`; };
+    return `${v[0] == null ? "No alarm" : "−" + fmt(v[0], dp)} / ${v[1] == null ? "No alarm" : "+" + fmt(v[1], dp)} ${u}`; };
   $("tuneLimits").innerHTML = r.features.map((f) => `<tr><td>${SENSORS[f].name}</td><td class="num">${lim(a.limits, f)}</td><td class="num">${lim(b.limits, f)}</td></tr>`).join("");
   const m = +document.querySelector('#tuneInstant input[data-k="margin"]').value;
   mkChart("cSweep", { type: "line", plugins: [vlinesPlugin],
     data: { datasets: [
-      { label: "เตือนผิด (%)", data: r.sweep.map((s) => ({ x: s.margin, y: (s.false_alarm ?? 0) * 100 })), borderColor: "#ef4444", pointRadius: 2, tension: .2 },
-      { label: "จับได้ (%)", data: r.sweep.map((s) => ({ x: s.margin, y: s.detection == null ? null : s.detection * 100 })), borderColor: "#22c55e", pointRadius: 2, tension: .2 },
+      { label: "False alarms (%)", data: r.sweep.map((s) => ({ x: s.margin, y: (s.false_alarm ?? 0) * 100 })), borderColor: "#ef4444", pointRadius: 2, tension: .2 },
+      { label: "Detected (%)", data: r.sweep.map((s) => ({ x: s.margin, y: s.detection == null ? null : s.detection * 100 })), borderColor: "#22c55e", pointRadius: 2, tension: .2 },
     ] },
-    options: { plugins: { legend: { position: "bottom" }, vlines: { lines: [{ x: m, color: "#f59e0b", text: "ค่าที่ลอง" }] } },
+    options: { plugins: { legend: { position: "bottom" }, vlines: { lines: [{ x: m, color: "#f59e0b", text: "Trial" }] } },
       scales: { x: { type: "linear", title: { display: true, text: "margin" } }, y: { min: 0, max: 100 } } } });
 }
 
@@ -886,29 +886,29 @@ function renderTuneHistory() {
     <td>${esc((S.report.model_names || {})[x.best] || x.best)}</td>
     <td class="num">${pct(x.metrics.mspc && x.metrics.mspc.false_alarm)}</td><td class="num">${pct(x.metrics.mspc && x.metrics.mspc.detection)}</td>
     <td class="hint" style="margin:0">margin ${x.detector.margin} · persist ${x.detector.persist_s ?? "-"} s · floors ${Object.values(x.floors).join("/")}</td>
-    <td><button class="btn ghost sm" data-restore="${i}">คืนค่านี้</button></td></tr>`).join("") : `<tr><td colspan="6" class="hint">ยังไม่มีประวัติ</td></tr>`;
+    <td><button class="btn ghost sm" data-restore="${i}">Restore</button></td></tr>`).join("") : `<tr><td colspan="6" class="hint">No history yet</td></tr>`;
   $("tuneHistory").querySelectorAll("[data-restore]").forEach((b) => (b.onclick = async () => {
-    $("tuneStatus").innerHTML = '<span class="spin"></span>กำลังคืนค่าและเทรนใหม่...';
-    try { await api("/api/tune/restore", { index: +b.dataset.restore }); S.cfg = await api("/api/config"); toast("คืนค่าแล้ว"); await loadReport(); }
+    $("tuneStatus").innerHTML = '<span class="spin"></span>Restoring and retraining…';
+    try { await api("/api/tune/restore", { index: +b.dataset.restore }); S.cfg = await api("/api/config"); toast("Restored"); await loadReport(); }
     catch (e) { $("tuneStatus").textContent = e.message; }
   }));
 }
 
 /* ------------------------------------------------------------------ settings */
 const ADV = [
-  ["detector", "warmup_s", "ตัดช่วงเริ่มต้นของรอบ normal (วินาที)"], ["detector", "median_s", "หน้าต่าง median (วินาที)"],
-  ["detector", "ewma_lambda", "EWMA λ ต่อ 1 วินาที (0-1, น้อย = เรียบกว่า)"], ["detector", "persist_s", "ต้องเกินเส้นต่อเนื่อง (วินาที)"],
-  ["detector", "release", "เกณฑ์เลิกเตือน (สัดส่วนของเส้น)"], ["detector", "quantile", "quantile ของน้ำปกติ"],
-  ["detector", "margin", "ระยะเผื่อของเส้นเตือน"], ["detector", "min_sigma", "MSPC: ขั้นต่ำ (เท่าของ floor)"],
-  ["floors", "temp_c", "floor อุณหภูมิ (°C)"], ["floors", "tds_ppm", "floor TDS (ppm)"], ["floors", "turb_v", "floor ความขุ่น (V)"],
+  ["detector", "warmup_s", "Trim the start of normal runs (s)"], ["detector", "median_s", "Median window (s)"],
+  ["detector", "ewma_lambda", "EWMA λ per second (0–1, lower = smoother)"], ["detector", "persist_s", "Must stay above the line for (s)"],
+  ["detector", "release", "Stop-alarm level (fraction of the line)"], ["detector", "quantile", "Normal-water quantile"],
+  ["detector", "margin", "Alarm line margin"], ["detector", "min_sigma", "MSPC: minimum (× floor)"],
+  ["floors", "temp_c", "Temperature floor (°C)"], ["floors", "tds_ppm", "floor TDS (ppm)"], ["floors", "turb_v", "Turbidity floor (V)"],
   ["floors", "ph", "floor pH"],
-  ["", "session_gap_min", "ห่างกันเกินกี่นาทีถือเป็นน้ำใหม่ (session)"], ["", "link_timeout_s", "เตือนเมื่อไม่มีข้อมูลเกิน (วินาที)"],
+  ["", "session_gap_min", "Gap in minutes that starts a new water session"], ["", "link_timeout_s", "Alert when no data for (s)"],
 ];
 async function loadConfig() {
   try {
     const [cfg, ports] = await Promise.all([api("/api/config"), api("/api/ports")]);
     S.cfg = cfg;
-    const opts = [["auto", "อัตโนมัติ"], ["SIM", "SIM (จำลอง)"]].concat(ports.ports.map((p) => [p.device, `${p.device} · ${p.desc}${p.chip ? " ✓ESP32" : ""}`]));
+    const opts = [["auto", "Auto"], ["SIM", "SIM (simulated)"]].concat(ports.ports.map((p) => [p.device, `${p.device} · ${p.desc}${p.chip ? " ✓ESP32" : ""}`]));
     if (!opts.some((o) => o[0] === cfg.port)) opts.push([cfg.port, cfg.port]);
     $("setPort").innerHTML = opts.map(([v, t]) => `<option value="${esc(v)}">${esc(t)}</option>`).join("");
     $("setPort").value = cfg.port;
@@ -925,12 +925,12 @@ async function loadConfig() {
 }
 function showCalib(c) {
   $("calTdsInfo").textContent = `offset ${fmt(c.tds_offset_v, 3)} V · K ${fmt(c.tds_k, 3)}`;
-  $("ph1Info").textContent = `บันทึกไว้: pH ${c.ph_points[0][0]} = ${fmt(c.ph_points[0][1], 3)} V`;
-  $("ph2Info").textContent = `บันทึกไว้: pH ${c.ph_points[1][0]} = ${fmt(c.ph_points[1][1], 3)} V`;
+  $("ph1Info").textContent = `Saved: pH ${c.ph_points[0][0]} = ${fmt(c.ph_points[0][1], 3)} V`;
+  $("ph2Info").textContent = `Saved: pH ${c.ph_points[1][0]} = ${fmt(c.ph_points[1][1], 3)} V`;
 }
 async function saveConfig() {
   const pin = $("rmPin").value;
-  if ($("rmOn").checked && !pin.startsWith("••••") && pin.length < 6) { toast("PIN ต้องยาวอย่างน้อย 6 ตัว"); return; }
+  if ($("rmOn").checked && !pin.startsWith("••••") && pin.length < 6) { toast("The PIN must be at least 6 characters"); return; }
   const patch = {
     port: $("setPort").value, use_ph: $("setPh").checked, ph_divider: +$("setDiv").value,
     alerts: { sound: $("alSound").checked, ntfy_topic: $("alNtfy").value.trim(), telegram_token: $("alTgTok").value.trim(),
@@ -945,12 +945,12 @@ async function saveConfig() {
   const remoteChanged = S.cfg && S.cfg.remote.enabled !== patch.remote.enabled;
   try {
     S.cfg = await api("/api/config", patch);
-    $("saveMsg").textContent = "บันทึกแล้ว ✓" + (remoteChanged ? " · ปิดแล้วเปิดโปรแกรมใหม่เพื่อให้การเข้าจากเครื่องอื่นมีผล" : "");
-    toast("บันทึกการตั้งค่าแล้ว");
+    $("saveMsg").textContent = "Saved ✓" + (remoteChanged ? " · restart the app for access from other devices to take effect" : "");
+    toast("Settings saved");
   } catch (e) { toast(e.message); }
 }
 async function calibrate(action, value) {
-  try { const r = await api("/api/calibrate", { action, value }); showCalib(r.calib); toast("คาลิเบรตแล้ว ✓"); }
+  try { const r = await api("/api/calibrate", { action, value }); showCalib(r.calib); toast("Calibrated ✓"); }
   catch (e) { toast(e.message, 4000); }
 }
 
@@ -960,19 +960,19 @@ function wire() {
   document.addEventListener("click", unlockAudio, { once: true });
   $("btnSound").onclick = askNotify; $("btnNotifPerm").onclick = askNotify;
   $("btnSaveLast").onclick = async () => {
-    const min = prompt("บันทึกข้อมูลสดย้อนหลังกี่นาทีเป็นรอบใหม่?", "5");
+    const min = prompt("Save how many minutes of live data as a new run?", "5");
     if (min === null) return;
-    const label = prompt("เงื่อนไข (label) เช่น salt_lvl1 (เว้นว่าง = ตั้งชื่อทีหลัง)", "") || "unlabeled";
-    try { const r = await api("/api/snapshot", { minutes: +min, label: label.trim() }); toast(`บันทึกเป็น ${r.file} แล้ว`, 4000); }
+    const label = prompt("Condition (label), e.g. salt_lvl1 (leave empty to label later)", "") || "unlabeled";
+    try { const r = await api("/api/snapshot", { minutes: +min, label: label.trim() }); toast(`Saved as ${r.file}`, 4000); }
     catch (e) { toast(e.message, 4000); }
   };
   $("monitorToggle").onchange = async (e) => {
     try { await api("/api/monitor", { on: e.target.checked }); unlockAudio(); }
     catch (err) { toast(err.message); e.target.checked = !e.target.checked; }
   };
-  const SIMS = [["normal", "💧 น้ำปกติ"], ["salt", "🧂 เกลือ"], ["baking_soda", "🧁 เบกกิ้งโซดา"], ["starch", "🌽 แป้ง"],
-    ["vinegar", "🍶 น้ำส้มสายชู"], ["hot_water", "♨️ น้ำร้อน"], ["probe_out", "🖐️ ยกหัววัด"],
-    ["ramp_salt", "📈 ค่อยๆ เติมเกลือ"], ["ramp_starch", "📈 ค่อยๆ เติมแป้ง"], ["pulse", "💥 หยดเกลือครั้งเดียว"]];
+  const SIMS = [["normal", "💧 Normal water"], ["salt", "🧂 Salt"], ["baking_soda", "🧁 Baking soda"], ["starch", "🌽 Starch"],
+    ["vinegar", "🍶 Vinegar"], ["hot_water", "♨️ Hot water"], ["probe_out", "🖐️ Probe lifted"],
+    ["ramp_salt", "📈 Slow salt ramp"], ["ramp_starch", "📈 Slow starch ramp"], ["pulse", "💥 Single salt drop"]];
   $("simChips").innerHTML = SIMS.map(([k, t]) => `<span class="chip" data-s="${k}">${t}</span>`).join("");
   $("simChips").onclick = async (e) => {
     const s = e.target.dataset.s; if (!s) return;
@@ -995,10 +995,10 @@ function wire() {
   $("btnMark").onclick = async () => {
     try {
       const dose = $("markDose").value;
-      await api("/api/record/mark", { text: $("markText").value || "เหตุการณ์", kind: S.markKind, dose: dose === "" ? null : +dose });
+      await api("/api/record/mark", { text: $("markText").value || "Events", kind: S.markKind, dose: dose === "" ? null : +dose });
       $("markText").value = ""; $("markDose").value = ""; S.markKind = "note";
       document.querySelectorAll("#markChips .chip").forEach((x) => x.classList.remove("on"));
-      toast("บันทึกเหตุการณ์แล้ว");
+      toast("Event marked");
     } catch (e) { toast(e.message, 4000); }
   };
   $("btnRec").onclick = async () => {
@@ -1007,7 +1007,7 @@ function wire() {
         note: $("recNote").value.trim(), new_water: $("recNew").checked });
       S.recWas = true; $("recNew").checked = false;
       $("recWarn").innerHTML = (r.warnings || []).map((w) => `<div class="notice warn">${esc(w)}</div>`).join("");
-      toast("เริ่มเก็บข้อมูล");
+      toast("Start recording");
     } catch (e) { toast(e.message, 4000); }
   };
   $("btnRecStop").onclick = () => api("/api/record/stop", {}).catch((e) => toast(e.message));
@@ -1023,7 +1023,7 @@ function wire2() {
     try {
       const r = await api("/api/tune/suggest_floors");
       Object.entries(r.floors).forEach(([f, v]) => { const i = document.querySelector(`#tuneRefit input[data-g=floors][data-k="${f}"]`); if (i) i.value = v; });
-      $("suggestMsg").textContent = `จาก ${r.n_sessions} session น้ำปกติ (ยังไม่ได้บันทึก กดบันทึกถ้าเห็นด้วย)`;
+      $("suggestMsg").textContent = `From ${r.n_sessions} normal-water sessions (not saved yet: press Save if you agree)`;
       schedulePreview();
     } catch (e) { $("suggestMsg").textContent = e.message; }
   };
@@ -1035,11 +1035,11 @@ function wire2() {
   };
   $("btnTuneApply").onclick = async () => {
     $("btnTuneApply").disabled = true;
-    $("tuneStatus").innerHTML = '<span class="spin"></span>กำลังบันทึกและเทรนใหม่...';
+    $("tuneStatus").innerHTML = '<span class="spin"></span>Saving and retraining…';
     try {
       const r = await api("/api/tune/apply", { settings: tuneSettings(), retrain: true });
       S.cfg = await api("/api/config");
-      toast(r.ok ? "บันทึกและเทรนใหม่แล้ว" : r.error, 4000);
+      toast(r.ok ? "Saved and retrained" : r.error, 4000);
       await loadReport();
     } catch (e) { $("tuneStatus").textContent = e.message; }
     $("btnTuneApply").disabled = false;
@@ -1064,11 +1064,11 @@ function wire2() {
     $("alNtfy").value = "water-sentinel-" + r;
   };
   $("btnTestAlert").onclick = async () => {
-    $("testAlertMsg").textContent = "กำลังส่ง... (บันทึกการตั้งค่าก่อนทดสอบ)";
+    $("testAlertMsg").textContent = "Sending… (settings are saved before the test)";
     try {
       await saveConfig();
       const r = await api("/api/alerts/test", {});
-      $("testAlertMsg").textContent = r.results.map((x) => `${x.channel}: ${x.ok ? "ส่งแล้ว ✓" : "ล้มเหลว " + x.error}`).join(" · ");
+      $("testAlertMsg").textContent = r.results.map((x) => `${x.channel}: ${x.ok ? "Sent ✓" : "Failed " + x.error}`).join(" · ");
     } catch (e) { $("testAlertMsg").textContent = e.message; }
   };
   $("calAir").onclick = () => calibrate("tds_air");

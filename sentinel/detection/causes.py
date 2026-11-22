@@ -23,14 +23,14 @@ ACTIVE_Z = 3.0        # a sensor counts as "moved" beyond this
 
 # direction of each cause class in feature space (z sign: turbidity VOLTAGE falls when water gets cloudier)
 PROTOS = {
-    "dissolved_salts": {"name": "สารละลาย/เกลือ (ไอออนละลายน้ำเพิ่มขึ้น)", "w": {"tds_ppm": 1.0}, "needs": ["tds_ppm"]},
-    "alkaline_salt": {"name": "เกลือที่เป็นด่าง (เช่น เบกกิ้งโซดา)", "w": {"tds_ppm": 1.0, "ph": 1.0}, "needs": ["tds_ppm", "ph"]},
-    "acid": {"name": "กรด (เช่น น้ำส้มสายชู)", "w": {"ph": -1.0, "tds_ppm": 0.3}, "needs": ["ph"]},
-    "suspended_solids": {"name": "ของแข็งแขวนลอย/ความขุ่น (เช่น แป้ง ดิน)", "w": {"turb_v": -1.0, "tds_ppm": 0.1}, "needs": ["turb_v"]},
-    "warmer": {"name": "น้ำอุ่นขึ้น/น้ำร้อน", "w": {"temp_c": 1.0, "tds_ppm": 0.15}, "needs": ["temp_c"]},
-    "cooler": {"name": "น้ำเย็นลง", "w": {"temp_c": -1.0, "tds_ppm": -0.15}, "needs": ["temp_c"]},
+    "dissolved_salts": {"name": "Dissolved solids / salt (more dissolved ions)", "w": {"tds_ppm": 1.0}, "needs": ["tds_ppm"]},
+    "alkaline_salt": {"name": "Alkaline salt (e.g. baking soda)", "w": {"tds_ppm": 1.0, "ph": 1.0}, "needs": ["tds_ppm", "ph"]},
+    "acid": {"name": "Acid (e.g. vinegar)", "w": {"ph": -1.0, "tds_ppm": 0.3}, "needs": ["ph"]},
+    "suspended_solids": {"name": "Suspended solids / turbidity (e.g. starch, soil)", "w": {"turb_v": -1.0, "tds_ppm": 0.1}, "needs": ["turb_v"]},
+    "warmer": {"name": "Warmer / hot water", "w": {"temp_c": 1.0, "tds_ppm": 0.15}, "needs": ["temp_c"]},
+    "cooler": {"name": "Colder water", "w": {"temp_c": -1.0, "tds_ppm": -0.15}, "needs": ["temp_c"]},
 }
-PROBE = {"name": "หัววัดถูกรบกวน (ยก/ขยับ/มีฟองอากาศ)"}
+PROBE = {"name": "Probe disturbed (lifted, moved or air bubbles)"}
 
 # the user's own labels -> the cause class they most likely mean (used only to score the rules honestly)
 LABEL_HINTS = {"salt": "dissolved_salts", "nacl": "dissolved_salts", "baking_soda": "alkaline_salt",
@@ -118,20 +118,20 @@ def infer(z, feats, cause_model=None, recent_fault=False):
     out = {"experimental": True, "fingerprint": {f: round(float(v), 1) for f, v in zip(feats, z)},
            "drivers": drivers(z, feats), "notes": [], "disambiguate": [], "candidates": []}
     if float(np.linalg.norm(z)) < MIN_NORM:
-        out.update(verdict="too_small", headline="การเปลี่ยนแปลงยังเล็กเกินกว่าจะบอกชนิดได้")
+        out.update(verdict="too_small", headline="The change is still too small to tell the type")
         return out
     rules, missing = rule_candidates(z, feats)
     learned = learned_candidates(z, (cause_model or {}).get("centroids")) \
         if cause_model and cause_model.get("features") == feats else []
     if recent_fault:
-        out["notes"].append("เซนเซอร์ผิดพลาดหลังเริ่มเตือน: เป็นไปได้ว่าหัววัดถูกยกหรือขยับ")
+        out["notes"].append("Sensor errors after the alarm started: the probe was probably lifted or moved")
     if learned and learned[0]["similarity"] >= OPEN_SET:
         cands = learned[:3]
-        out["notes"].append("เทียบกับน้ำผิดปกติที่คุณเก็บและตั้งชื่อไว้")
+        out["notes"].append("Compared with the abnormal water you recorded and labelled")
     elif rules and rules[0]["similarity"] >= OPEN_SET:
         cands = rules[:3]
         if learned:
-            out["notes"].append("ไม่ตรงกับน้ำผิดปกติที่คุณเคยเก็บ จึงตีความตามกฎทั่วไปของทิศทางการเปลี่ยน")
+            out["notes"].append("Does not match abnormal water you recorded, so interpreted with general direction-of-change rules")
     else:
         cands = sorted(learned[:1] + rules[:2], key=lambda c: -c["similarity"])
     if recent_fault and not any(c["family"] == "probe_disturbed" for c in cands):
@@ -141,20 +141,20 @@ def infer(z, feats, cause_model=None, recent_fault=False):
     out["verdict"] = _verdict(sorted(cands, key=lambda c: -c["similarity"]))
     top = cands[0] if cands else None
     if out["verdict"] == "match" and top:
-        out["headline"] = f"สอดคล้องกับ: {top['name']}"
+        out["headline"] = f"Consistent with: {top['name']}"
     elif out["verdict"] == "ambiguous":
         tied = [c for c in sorted(cands, key=lambda c: -c["similarity"])
                 if c["similarity"] >= OPEN_SET and cands[0]["similarity"] - c["similarity"] < AMBIGUOUS] or cands[:2]
-        out["headline"] = "แยกไม่ออกระหว่าง " + " / ".join(c["name"] for c in tied)
+        out["headline"] = "Cannot tell apart " + " / ".join(c["name"] for c in tied)
     else:
-        out["headline"] = "ไม่ตรงกับรูปแบบที่รู้จัก (ไม่ทราบสาเหตุ)"
+        out["headline"] = "Does not match a known pattern (unknown cause)"
     if "ph" in missing or "ph" not in feats:
         if out["verdict"] == "match" and top and top["family"] in ("dissolved_salts", "suspended_solids"):
-            out["disambiguate"].append("เพิ่มเซนเซอร์ pH เพื่อแยกเกลือธรรมดาออกจากเบกกิ้งโซดาหรือกรด")
+            out["disambiguate"].append("Add a pH sensor to separate table salt from baking soda or acid")
     if out["verdict"] == "ambiguous":
         if "ph" not in feats:
-            out["disambiguate"].append("เพิ่มเซนเซอร์ pH: เกลือ เบกกิ้งโซดา และกรด เปลี่ยน pH ต่างกัน จึงแยกได้")
-        out["disambiguate"].append("เก็บรอบ anomaly ของสารทั้งสองชนิดแล้วเทรนใหม่ ระบบจะแยกได้ถ้าทิศทางต่างกันพอ")
+            out["disambiguate"].append("Add a pH sensor: salt, baking soda and acid change pH differently, so they can be separated")
+        out["disambiguate"].append("Record anomaly runs of both substances and retrain; the system can separate them if their directions differ enough")
     out["disambiguate"] = list(dict.fromkeys(out["disambiguate"]))
     return out
 
@@ -164,7 +164,7 @@ def build_model(items, feats):
 
     items: [{"run_id", "family", "label", "vec"}] with the fingerprint of every labelled anomaly run.
     A family with a single run cannot be tested honestly (nothing left to learn it from), so it is
-    reported as "ไม่มีรอบอื่นของ family เดียวกัน" and counted in `unseen`, not in accuracy.
+    reported as "No other run of the same family" and counted in `unseen`, not in accuracy.
     """
     def centroids(rows):
         by = {}

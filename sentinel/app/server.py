@@ -41,7 +41,7 @@ PUBLIC_SUFFIXES = (".trycloudflare.com", ".ts.net")
 # GETs a viewer may not use (they are not needed to look, or they reveal / compute too much)
 VIEWER_BLOCKED = ("/docs", "/redoc", "/openapi.json", "/api/ports", "/api/tune/suggest_floors",
                   "/api/turbidity/tempco", "/api/share")
-VIEWER_MSG = "โหมดผู้ชม: ดูได้อย่างเดียว (เข้าสู่ระบบด้วย PIN เพื่อแก้ไข)"
+VIEWER_MSG = "Viewer mode: read only (sign in with the PIN to make changes)"
 LOCK_AFTER, LOCK_WINDOW_S = 8, 900
 VIEWER_SECRET_KEYS = (("remote", "pin"), ("remote", "allowed_hosts"), ("ingest_token",), ("port",),
                       ("alerts", "ntfy_topic"), ("alerts", "ntfy_server"), ("alerts", "telegram_token"),
@@ -81,8 +81,8 @@ font-family:system-ui,sans-serif}form{background:#111a2e;padding:28px;border-rad
 input,button{width:100%;box-sizing:border-box;padding:12px;border-radius:10px;font-size:18px;margin-top:12px}
 input{border:1px solid #334155;background:#0b1220;color:#e2e8f0;letter-spacing:4px;text-align:center}
 button{border:0;background:#38bdf8;color:#082f49;font-weight:700}p{color:#f87171}</style></head>
-<body><form method="post" action="/login"><h2>💧 Water Sentinel</h2><div>ใส่ PIN เพื่อดูจากระยะไกล</div>
-<input name="pin" type="password" inputmode="numeric" autofocus><button>เข้าสู่ระบบ</button>{err}</form></body></html>"""
+<body><form method="post" action="/login"><h2>💧 Water Sentinel</h2><div>Enter the PIN for remote access</div>
+<input name="pin" type="password" inputmode="numeric" autofocus><button>Sign in</button>{err}</form></body></html>"""
 
 
 def _token(pin):
@@ -149,7 +149,7 @@ def create_app(hub):
                 elif not can_login:
                     return PlainTextResponse("remote access is off", 403)
                 elif path.startswith("/api/"):
-                    return JSONResponse({"ok": False, "error": "ต้องเข้าสู่ระบบ"}, 401)
+                    return JSONResponse({"ok": False, "error": "Sign-in required"}, 401)
                 else:
                     return RedirectResponse("/login", 303)
         if role == "viewer":
@@ -185,7 +185,7 @@ def create_app(hub):
         key, now = _client_key(request), time.time()
         recent = [t for t in failures.get(key, []) if now - t < LOCK_WINDOW_S]
         if len(recent) >= LOCK_AFTER:
-            return HTMLResponse(LOGIN_PAGE.replace("{err}", "<p>ใส่ PIN ผิดหลายครั้งเกินไป ลองใหม่ใน 15 นาที</p>"), 429)
+            return HTMLResponse(LOGIN_PAGE.replace("{err}", "<p>Too many wrong PINs. Try again in 15 minutes</p>"), 429)
         pin = parse_qs((await request.body()).decode())
         pin = (pin.get("pin") or [""])[0]
         real = hub.cfg["remote"]["pin"]
@@ -199,7 +199,7 @@ def create_app(hub):
         if len(failures) > 5000:
             failures.clear()
         await asyncio.sleep(1.0)   # slow down guessing without blocking everyone else
-        return HTMLResponse(LOGIN_PAGE.replace("{err}", "<p>PIN ไม่ถูกต้อง</p>"), 401)
+        return HTMLResponse(LOGIN_PAGE.replace("{err}", "<p>Wrong PIN</p>"), 401)
 
     app.mount("/static", StaticFiles(directory=WEB_DIR), name="static")
 
@@ -315,15 +315,15 @@ def create_app(hub):
     def report():
         p = MODEL_DIR / "report.json"
         if not p.exists():
-            return JSONResponse({"ok": False, "error": "ยังไม่มีผลการเทรน"}, 404)
+            return JSONResponse({"ok": False, "error": "No training results yet"}, 404)
         return JSONResponse(json.loads(p.read_text(encoding="utf-8")))
 
     @app.get("/api/embedding")
     def embed(request: Request, method: str = "pca"):
         if not (MODEL_DIR / "report.json").exists():
-            raise ValueError("ยังไม่มีผลการเทรน")
+            raise ValueError("No training results yet")
         if getattr(request.state, "role", "admin") == "viewer" and not (MODEL_DIR / f"embed_{method}.json").exists():
-            raise ValueError("ยังไม่ได้คำนวณภาพนี้ (ผู้ดูแลต้องเปิดดูก่อนหนึ่งครั้ง)")
+            raise ValueError("This view has not been computed yet (the admin needs to open it once)")
         return hub.embedding(method)
 
     # ---------------------------------------------------------------- tuning
@@ -369,21 +369,21 @@ def create_app(hub):
         if "public_url" in payload:
             url = str(payload["public_url"] or "").strip()
             if url and not url.startswith("https://"):
-                raise ValueError("ที่อยู่สาธารณะต้องขึ้นต้นด้วย https://")
+                raise ValueError("The public address must start with https://")
             patch["public_url"] = url[:200]
         if "public_view" in payload:
             patch["public_view"] = bool(payload["public_view"])
         if "tunnel" in payload:
             if request.client is None or request.client.host not in LOCAL_CLIENTS or \
                     any(h in request.headers for h in PROXY_HEADERS):
-                raise ValueError("เริ่ม/หยุดลิงก์สาธารณะได้จากคอมเครื่องนี้เท่านั้น")
+                raise ValueError("The public link can only be started or stopped on this computer")
             if payload["tunnel"]:
                 patch["public_view"] = True
             else:
                 tunnel.stop()
         pin = hub.cfg["remote"].get("pin") or ""
         if patch.get("public_view") and pin and len(pin) < 6:
-            raise ValueError("PIN สั้นเกินไปสำหรับลิงก์สาธารณะ: ตั้ง PIN อย่างน้อย 6 ตัวก่อน")
+            raise ValueError("PIN too short for a public link: set a PIN of at least 6 characters first")
         if patch:
             hub.update_config({"remote": patch})
         if payload.get("tunnel"):

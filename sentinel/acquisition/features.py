@@ -14,21 +14,21 @@ RAW_COLS = ["temp_c", "tds_v", "turb_v", "ph_pin_v"]
 
 
 SENSORS = {
-    "temp_c": {"name": "อุณหภูมิ", "unit": "°C", "up": "อุณหภูมิสูงขึ้น", "down": "อุณหภูมิลดลง"},
-    "tds_ppm": {"name": "TDS", "unit": "ppm", "up": "TDS สูงขึ้น (สารละลาย/เกลือเพิ่ม)", "down": "TDS ลดลง"},
-    "turb_v": {"name": "ความขุ่น", "unit": "V", "up": "น้ำใสขึ้น", "down": "น้ำขุ่นขึ้น"},
-    "ph": {"name": "pH", "unit": "", "up": "pH สูงขึ้น (เป็นด่างขึ้น)", "down": "pH ลดลง (เป็นกรดขึ้น)"},
+    "temp_c": {"name": "Temperature", "unit": "°C", "up": "Temperature up", "down": "Temperature down"},
+    "tds_ppm": {"name": "TDS", "unit": "ppm", "up": "TDS up (more dissolved solids/salt)", "down": "TDS down"},
+    "turb_v": {"name": "Turbidity", "unit": "V", "up": "Water clearer", "down": "Water cloudier"},
+    "ph": {"name": "pH", "unit": "", "up": "pH up (more alkaline)", "down": "pH down (more acidic)"},
 }
 
 
 FAULTS = {
-    "temp_missing": "ไม่พบเซนเซอร์อุณหภูมิ (DS18B20)",
-    "tds_dry": "หัววัด TDS ไม่อยู่ในน้ำ หรือสายหลวม",
-    "tds_saturated": "TDS อ่านค่าเต็มสเกล (ADC อิ่มตัว)",
-    "turb_saturated": "ความขุ่นอ่านค่าเต็มสเกล (ADC อิ่มตัว)",
-    "turb_missing": "ไม่มีสัญญาณจากเซนเซอร์ความขุ่น",
-    "ph_saturated": "pH อ่านค่าเต็มสเกล: ต้องใช้ตัวแบ่งแรงดัน 10k/10k",
-    "ph_missing": "ไม่มีสัญญาณจากเซนเซอร์ pH",
+    "temp_missing": "Temperature sensor not found (DS18B20)",
+    "tds_dry": "TDS probe out of the water or cable loose",
+    "tds_saturated": "TDS reading at full scale (ADC saturated)",
+    "turb_saturated": "Turbidity reading at full scale (ADC saturated)",
+    "turb_missing": "No signal from the turbidity sensor",
+    "ph_saturated": "pH reading at full scale: a 10k/10k voltage divider is needed",
+    "ph_missing": "No signal from the pH sensor",
 }
 
 

@@ -67,35 +67,35 @@ def load_runs(cfg, use_ph, data_dir=DATA_DIR, selection=None):
     for p in sorted(pathlib.Path(data_dir).glob("*.csv")):
         meta = info.get(p.name, {})
         if meta.get("excluded"):
-            skipped.append({"file": p.name, "reason": "ตั้งไว้ว่าไม่ใช้ในการเทรน"})
+            skipped.append({"file": p.name, "reason": "Set as not used for training"})
             continue
         if selection and selection["files"] is not None and selection["files"].get(p.name, "exclude") == "exclude":
-            skipped.append({"file": p.name, "reason": "ไม่ได้เลือกในชุดข้อมูลนี้", "quiet": True})
+            skipped.append({"file": p.name, "reason": "Not selected in this dataset", "quiet": True})
             continue
         try:
             raw = read_run(p)
         except Exception as e:  # unreadable file
-            skipped.append({"file": p.name, "reason": f"อ่านไฟล์ไม่ได้: {e}"})
+            skipped.append({"file": p.name, "reason": f"Cannot read file: {e}"})
             continue
         if raw.empty:
-            skipped.append({"file": p.name, "reason": "ไฟล์ว่าง (มีแต่หัวตาราง)"})
+            skipped.append({"file": p.name, "reason": "Empty file (header only)"})
             continue
         label = str(raw["label"].iloc[0])
         if label == UNLABELED:
-            skipped.append({"file": p.name, "reason": "ยังไม่ได้ตั้งชื่อเงื่อนไข (unlabeled)"})
+            skipped.append({"file": p.name, "reason": "No condition label yet (unlabeled)"})
             continue
         role = role_of(selection, p.name, label)
         if (label == "normal") != (role in ("train", "test")):
-            skipped.append({"file": p.name, "reason": f"role '{role}' ไม่ตรงกับเงื่อนไข '{label}'"})
+            skipped.append({"file": p.name, "reason": f"role '{role}' Does not match the condition filter '{label}'"})
             continue
         if ph_in and ("ph_pin_v" not in raw or not np.isfinite(pd.to_numeric(raw["ph_pin_v"], errors="coerce")).any()):
-            skipped.append({"file": p.name, "reason": "ไม่มีข้อมูล pH (เก็บก่อนเปิดใช้ pH)"})
+            skipped.append({"file": p.name, "reason": "No pH data (recorded before pH was enabled)"})
             continue
         clean, faults, dt = prepare_run(raw, cfg, ph_in, warmup=(label == "normal"), sensors=sensors)
         if len(clean) < 10:
-            why = "เหลือข้อมูลน้อยกว่า 10 แถวหลังตัดช่วงเริ่มต้น/ค่าเซนเซอร์ผิดพลาด"
+            why = "Fewer than 10 rows left after trimming the start / sensor errors"
             if faults:
-                why += f" (พบ {', '.join(faults)})"
+                why += f" (found {', '.join(faults)})"
             skipped.append({"file": p.name, "reason": why})
             continue
         nfault = int(sum(faults.values()))
@@ -107,7 +107,7 @@ def load_runs(cfg, use_ph, data_dir=DATA_DIR, selection=None):
     dup = sorted({i for i in ids if ids.count(i) > 1})
     if dup:
         files = [r["file"] for r in runs if r["run_id"] in dup]
-        raise TrainError(f"เลขรอบ {dup} ซ้ำกันหลายไฟล์: {files} ย้ายไฟล์ที่ไม่ใช้ออกจากโฟลเดอร์ data")
+        raise TrainError(f"Run number {dup} is used by several files: {files}. Move the unused files out of the data folder")
     return runs, skipped
 
 
@@ -125,23 +125,23 @@ def check_selection(cfg, use_ph, selection=None, data_dir=DATA_DIR):
     anom = [r for r in runs if r["role"] == "anomaly"]
     sess = sorted({r["session"] for r in train_})
     if not train_:
-        blockers.append("ยังไม่มีรอบ normal ที่เลือกเป็น train: ติ๊กรอบน้ำปกติอย่างน้อย 1 รอบ")
+        blockers.append("No normal run selected as train: tick at least 1 normal-water run")
     elif len(sess) < 3:
-        warnings.append(f"รอบ train มาจาก {len(sess)} session (น้ำ {len(sess)} ชุด): ผลเตือนผิดจะดูดีเกินจริง แนะนำอย่างน้อย 3 session")
+        warnings.append(f"Train runs come from {len(sess)} sessions ({len(sess)} batches of water): false-alarm results will look too good. At least 3 sessions recommended")
     if train_ and not anom:
-        warnings.append("ยังไม่มีรอบ anomaly ที่เลือก: เทียบโมเดลได้แค่การเตือนผิด")
-    ph_bad = [s["file"] for s in skipped if "ไม่มีข้อมูล pH" in s["reason"]]
+        warnings.append("No anomaly runs selected: models can only be compared on false alarms")
+    ph_bad = [s["file"] for s in skipped if "No pH data" in s["reason"]]
     if ph_bad:
-        warnings.append(f"เลือกใช้ pH แต่ {len(ph_bad)} รอบไม่มีข้อมูล pH จึงถูกข้าม: {', '.join(ph_bad[:4])}{' ...' if len(ph_bad) > 4 else ''}")
+        warnings.append(f"pH is selected but {len(ph_bad)} runs have no pH data, so they are skipped: {', '.join(ph_bad[:4])}{' ...' if len(ph_bad) > 4 else ''}")
     for r in runs:
         if r["fault_frac"] > 0.10:
-            warnings.append(f"รอบ {r['run_id']} ({r['file']}) มีค่าเซนเซอร์ผิดพลาด {r['fault_frac'] * 100:.0f}% ของแถว")
+            warnings.append(f"Run {r['run_id']} ({r['file']}) has sensor errors in {r['fault_frac'] * 100:.0f}% of rows")
     cal = {tuple(sorted((k, str(v)) for k, v in (r["meta_calib"] or {}).items())) for r in runs if r["meta_calib"]}
     if len(cal) > 1:
-        warnings.append("รอบที่เลือกบันทึกตอนที่ calibration ต่างกัน: ระบบคำนวณใหม่จากแรงดันดิบด้วยค่าปัจจุบัน "
-                        "แต่ถ้าเปลี่ยนหัววัดหรือตัวแบ่งแรงดันระหว่างรอบ ให้เลือกเฉพาะรอบที่ใช้ฮาร์ดแวร์ชุดเดียวกัน")
+        warnings.append("The selected runs were recorded with different calibrations: values are recomputed from raw voltages with the current calibration. "
+                        "If the probe or voltage divider changed between runs, select only runs recorded with the same hardware")
     if train_ and any(r["meta_calib"] and r["meta_calib"].get("ph_divider") != cfg["ph_divider"] for r in runs) and "ph" in feature_list(use_ph, selection["sensors"] if selection else None):
-        warnings.append("อัตราส่วนตัวแบ่งแรงดัน pH ตอนบันทึกต่างจากค่าปัจจุบัน ตรวจที่หน้าตั้งค่า")
+        warnings.append("The pH divider ratio at recording time differs from the current one: check Settings")
     return {"ok": not blockers, "blockers": blockers, "warnings": warnings,
             "counts": {"train": len(train_), "test": len(test_), "anomaly": len(anom), "sessions": len(sess),
                        "skipped": len([s for s in skipped if not s.get("quiet")])}}
@@ -233,17 +233,17 @@ def split_runs(runs, feats):
     sessions = sorted({r["session"] for r in normal})
     if len(sessions) >= 3:
         group_of = {r["run_id"]: r["session"] for r in normal}
-        protocol = f"leave-one-session-out ({len(sessions)} session น้ำ, {len(normal)} รอบ)"
+        protocol = f"leave-one-session-out ({len(sessions)} water sessions, {len(normal)} runs)"
     else:
         group_of = {r["run_id"]: r["run_id"] for r in normal}
-        protocol = (f"leave-one-run-out ({len(normal)} รอบ แต่มีแค่ {len(sessions)} session: "
-                    "รอบที่ใช้น้ำเดียวกันทำให้ผลดูดีเกินจริง)")
+        protocol = (f"leave-one-run-out ({len(normal)} runs but only {len(sessions)} sessions: "
+                    "runs in the same water make results look better than they are)")
     gkeys = sorted(set(group_of.values()), key=str)
     groups = {g: [(X[r["run_id"]], DT[r["run_id"]]) for r in normal if group_of[r["run_id"]] == g] for g in gkeys}
     if len(gkeys) >= 2:
         folds = [([groups[o] for o in gkeys if o != g], groups[g]) for g in gkeys]
     elif normal:
-        protocol = "time-split 70/30 (มี normal รอบเดียว ผลยังเชื่อถือได้น้อย)"
+        protocol = "time split 70/30 (only one normal run, results are not yet reliable)"
         x0, d0 = X[normal[0]["run_id"]], DT[normal[0]["run_id"]]
         cut = int(len(x0) * 0.7)
         folds = [([[(x0[:cut], d0)]], [(x0[cut:], d0)])]
@@ -287,17 +287,17 @@ def train(cfg, use_ph=None, data_dir=DATA_DIR, out_dir=MODEL_DIR, log=print, sel
     runs, skipped = load_runs(cfg, use_ph, data_dir, selection)
     for s in skipped:
         if not s.get("quiet"):
-            log(f"ข้าม {s['file']}: {s['reason']}")
+            log(f"Skipped {s['file']}: {s['reason']}")
     sp = split_runs(runs, feats)
     if not sp["normal"]:
-        raise TrainError("ยังไม่มีรอบ normal ที่เลือกเป็น train เก็บน้ำปกติอย่างน้อย 1 รอบ (แนะนำ 5 รอบ)")
+        raise TrainError("No normal run selected as train. Record at least 1 normal-water run (5 recommended)")
     normal, anomaly, test = sp["normal"], sp["anomaly"], sp["test"]
     X, DT, T, TD = sp["X"], sp["DT"], sp["T"], sp["TD"]
     sessions, gkeys, groups, folds, protocol = sp["sessions"], sp["gkeys"], sp["groups"], sp["folds"], sp["protocol"]
     k_cusum = det.get("cusum_k", K_DEFAULT)
     mparams = cfg.get("model_params", {})
-    log(f"ใช้ {len(normal)} รอบ normal (train), {len(test)} รอบ test-only, {len(anomaly)} รอบ anomaly, เซนเซอร์: {feats}")
-    log(f"วิธีประเมิน: {protocol}")
+    log(f"Using {len(normal)} normal runs (train), {len(test)} test-only runs, {len(anomaly)} anomaly runs, sensors: {feats}")
+    log(f"Evaluation: {protocol}")
 
     results = {}
     for cls in chosen:
@@ -476,7 +476,7 @@ def train(cfg, use_ph=None, data_dir=DATA_DIR, out_dir=MODEL_DIR, log=print, sel
         f.unlink()   # embeddings belong to the previous training
     snap = save_snapshot(out_dir)
     append_history(out_dir, meta, results, snapshot=snap)
-    log(f"โมเดลที่แนะนำ: {MODEL_NAMES[best]}  | บันทึกไว้ที่ {out_dir}")
+    log(f"Recommended model: {MODEL_NAMES[best]}  | saved to {out_dir}")
     return report
 
 
@@ -526,7 +526,7 @@ def restore_snapshot(sid, out_dir=MODEL_DIR):
     out_dir = pathlib.Path(out_dir)
     d = out_dir / SNAP_DIR / str(sid)
     if "/" in str(sid) or "\\" in str(sid) or ".." in str(sid) or not (d / "bundle.joblib").exists():
-        raise TrainError("ไม่พบโมเดลที่บันทึกไว้นี้")
+        raise TrainError("Saved model not found")
     for f in ("bundle.joblib", "report.json"):
         shutil.copy2(d / f, out_dir / f)
     for f in out_dir.glob("embed_*.json"):
@@ -568,7 +568,7 @@ def embedding(method, out_dir=MODEL_DIR):
     report = json.loads((out_dir / "report.json").read_text(encoding="utf-8"))
     pts = report["points"]
     if len(pts) < 5:
-        raise TrainError("ข้อมูลน้อยเกินไปสำหรับทำ embedding")
+        raise TrainError("Too little data for an embedding")
     Z = np.array([p["z"] for p in pts], float)
     Z = np.clip(Z, -50, 50)   # keep extreme anomalies from squashing everything else
     t0 = time.perf_counter()
@@ -576,21 +576,21 @@ def embedding(method, out_dir=MODEL_DIR):
         from sklearn.decomposition import PCA
         p = PCA(n_components=2).fit(Z)
         Y = p.transform(Z)
-        note = f"อธิบายความแปรปรวนได้ {p.explained_variance_ratio_.sum() * 100:.0f}%"
+        note = f"Explains {p.explained_variance_ratio_.sum() * 100:.0f}% of the variance"
     elif method == "tsne":
         from sklearn.manifold import TSNE
         Y = TSNE(n_components=2, perplexity=min(30, max(5, len(Z) // 4)), init="pca",
                  random_state=0).fit_transform(Z)
-        note = "t-SNE รักษาเพื่อนบ้านใกล้ ระยะห่างระหว่างกลุ่มตีความไม่ได้"
+        note = "t-SNE preserves near neighbours; distances between groups cannot be interpreted"
     elif method == "umap":
         try:
             import umap
         except ImportError:
-            raise TrainError("ยังไม่ได้ติดตั้ง UMAP: รัน  py -m pip install umap-learn  แล้วเปิดโปรแกรมใหม่")
+            raise TrainError("UMAP is not installed: run  py -m pip install umap-learn  then restart the app")
         Y = umap.UMAP(n_neighbors=min(15, len(Z) - 1), min_dist=0.1, random_state=0).fit_transform(Z)
-        note = "UMAP รักษาโครงสร้างทั้งใกล้และไกลได้ดีกว่า t-SNE แต่ยังเป็นภาพเชิงคุณภาพ"
+        note = "UMAP preserves both near and far structure better than t-SNE, but is still qualitative"
     else:
-        raise TrainError(f"ไม่รู้จักวิธี {method}")
+        raise TrainError(f"Unknown method {method}")
     out = {"method": method, "note": note, "seconds": round(time.perf_counter() - t0, 1),
            "xy": np.asarray(Y).round(4).tolist(),
            "label": [p["label"] for p in pts], "run": [p["run"] for p in pts],

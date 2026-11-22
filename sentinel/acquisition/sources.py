@@ -66,17 +66,17 @@ class Simulator:
     """Fake ESP32: steady water with realistic noise; scenarios mix in over ~10 s like a real dip."""
 
     SCENARIOS = {
-        "normal": ("น้ำปกติ", {}),
-        "salt": ("เติมเกลือ", {"tds_v": 0.30}),
-        "baking_soda": ("เติมเบกกิ้งโซดา", {"tds_v": 0.12, "ph_pin_v": -0.05}),
-        "starch": ("เติมแป้ง (ขุ่น)", {"turb_v": -0.45, "tds_v": 0.01}),
-        "vinegar": ("เติมน้ำส้มสายชู", {"ph_pin_v": 0.16, "tds_v": 0.04}),
-        "hot_water": ("น้ำร้อน", {"temp_c": 15.0}),
-        "probe_out": ("ยกหัววัดขึ้นจากน้ำ", {}),
+        "normal": ("Normal water", {}),
+        "salt": ("Salt added", {"tds_v": 0.30}),
+        "baking_soda": ("Baking soda added", {"tds_v": 0.12, "ph_pin_v": -0.05}),
+        "starch": ("Starch added (cloudy)", {"turb_v": -0.45, "tds_v": 0.01}),
+        "vinegar": ("Vinegar added", {"ph_pin_v": 0.16, "tds_v": 0.04}),
+        "hot_water": ("Hot water", {"temp_c": 15.0}),
+        "probe_out": ("Probe lifted out of the water", {}),
         # unsteady scenarios: (rate per second, cap), applied from the moment they are chosen
-        "ramp_salt": ("ค่อยๆ เติมเกลือ", {"ramp": {"tds_v": (0.0012, 0.40)}}),     # ~0.6 ppm/s
-        "ramp_starch": ("ค่อยๆ เติมแป้ง", {"ramp": {"turb_v": (-0.0015, -0.50)}}),
-        "pulse": ("หยดเกลือเข้มข้นครั้งเดียว", {"pulse": {"tds_v": 0.30}}),
+        "ramp_salt": ("Slow salt ramp", {"ramp": {"tds_v": (0.0012, 0.40)}}),     # ~0.6 ppm/s
+        "ramp_starch": ("Slow starch ramp", {"ramp": {"turb_v": (-0.0015, -0.50)}}),
+        "pulse": ("Single drop of strong brine", {"pulse": {"tds_v": 0.30}}),
     }
 
     def __init__(self):
@@ -87,7 +87,7 @@ class Simulator:
 
     def set(self, name):
         if name not in self.SCENARIOS:
-            raise ValueError(f"ไม่รู้จักสถานการณ์ {name}")
+            raise ValueError(f"Unknown scenario {name}")
         self.name = name
         self.since = 0
         self.ramp_base = dict(self.off)
@@ -135,14 +135,14 @@ class SourceThread(threading.Thread):
                 continue
             port = resolve_port(pref)
             if not port:
-                self.hub.set_link(False, "ไม่พบบอร์ด ESP32: เสียบสาย USB หรือเลือกพอร์ตในหน้าตั้งค่า", None)
+                self.hub.set_link(False, "No ESP32 board found: plug in the USB cable or choose the port in Settings", None)
                 time.sleep(2)
                 continue
             self._run_serial(port)
 
     def _run_sim(self):
         gen = self.hub.gen
-        self.hub.set_link(True, "โหมดจำลอง (ไม่ได้ใช้บอร์ดจริง)", "SIM")
+        self.hub.set_link(True, "Simulation (no real board)", "SIM")
         while not self.stopping and gen == self.hub.gen:
             self.hub.on_sample(self.sim.sample(), "sim")
             time.sleep(1.0 / max(0.1, self.hub.sim_speed))
@@ -152,12 +152,12 @@ class SourceThread(threading.Thread):
         try:
             import serial
         except ImportError:
-            self.hub.set_link(False, "ยังไม่ได้ติดตั้ง pyserial: py -m pip install pyserial", port)
+            self.hub.set_link(False, "pyserial is not installed: py -m pip install pyserial", port)
             time.sleep(5)
             return
         try:
             with serial.Serial(port, self.hub.cfg["baud"], timeout=1) as ser:
-                self.hub.set_link(True, f"เชื่อมต่อ {port} แล้ว กำลังรอข้อมูลจากบอร์ด...", port)
+                self.hub.set_link(True, f"Connected to {port}, waiting for data from the board…", port)
                 last = time.time()
                 while not self.stopping and gen == self.hub.gen:
                     raw = parse_data_line(ser.readline().decode(errors="replace").strip())
@@ -165,9 +165,9 @@ class SourceThread(threading.Thread):
                         last = time.time()
                         self.hub.on_sample(raw, "serial")
                     elif time.time() - last > 8:
-                        self.hub.set_link(True, f"ต่อ {port} ได้ แต่บอร์ดไม่ส่งข้อมูล: อัปโหลด firmware แล้วหรือยัง?", port)
+                        self.hub.set_link(True, f"Connected to {port}, but the board sends no data: has the firmware been uploaded?", port)
                         last = time.time()
         except Exception as e:  # port busy, unplugged, permission
-            self.hub.set_link(False, f"ใช้ {port} ไม่ได้ ({type(e).__name__}): ปิด Arduino Serial Monitor "
-                                     "หรือโปรแกรมอื่นที่ใช้พอร์ตนี้ แล้วระบบจะต่อใหม่เอง", port)
+            self.hub.set_link(False, f"Cannot use {port} ({type(e).__name__}): close the Arduino Serial Monitor "
+                                     "or any other program using this port, and the app will reconnect by itself", port)
             time.sleep(2)

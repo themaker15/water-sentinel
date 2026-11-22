@@ -46,26 +46,26 @@ def main(args):
             if "--dataset" in args:
                 i = args.index("--dataset")
                 if i + 1 >= len(args):
-                    print("ระบุชื่อชุดข้อมูล: py -m sentinel train --dataset NAME")
+                    print("Give a dataset name: py -m sentinel train --dataset NAME")
                     return 1
                 sel = dataset_selection(args[i + 1])
             report = train(cfg, use_ph=True if "--ph" in args else None, selection=sel)
         except (TrainError, ValueError) as e:
-            print(f"เทรนไม่สำเร็จ: {e}")
+            print(f"Training failed: {e}")
             return 1
-        print("\nสรุป (false alarm ยิ่งต่ำยิ่งดี, detection/AUC ยิ่งสูงยิ่งดี):")
+        print("\nSummary (lower false alarm is better, higher detection/AUC is better):")
         for r in report["models"].values():
-            star = "  <- แนะนำ" if r["key"] == report["meta"]["best"] else ""
+            star = "  <- recommended" if r["key"] == report["meta"]["best"] else ""
             delay = "-" if r["delay_s"] is None else f"{r['delay_s']:.0f}"
             test = "" if r.get("test_false_alarm") is None else f"  test-only FA {_pct(r['test_false_alarm'])}"
             print(f"  {r['name']:34s} FA {_pct(r['false_alarm'])}  DET {_pct(r['detection'])}  delay {delay} s{test}{star}")
         return 0
     if len(args) < 2:
-        print("ระบุไฟล์: py -m sentinel test data\\runXXX_label_....csv")
+        print("Give a file: py -m sentinel test data\\runXXX_label_....csv")
         return 1
     bundle = load_bundle()
     if bundle is None:
-        print("ยังไม่มีโมเดล รัน  py -m sentinel train  ก่อน")
+        print("No model yet. Run  py -m sentinel train  first")
         return 1
     meta = bundle["meta"]
     det = meta["detector"]
@@ -73,18 +73,18 @@ def main(args):
     tcfg = deep_merge(cfg, {"detector": det, "limits": meta["limits"]})
     clean, faults, dt = prepare_run(read_run(path), tcfg, meta["use_ph"], meta["calib"], meta["ph_divider"], warmup=False)
     if clean.empty:
-        print(f"ไม่มีข้อมูลที่ใช้ได้ (ค่าเซนเซอร์ผิดพลาด: {faults})")
+        print(f"No usable data (sensor errors: {faults})")
         return 1
     X = clean[meta["features"]].to_numpy(float)
     t = clean["t_s"].to_numpy()
-    print(f"{path.name}: {len(X)} แถว, ทุก {dt:.2f} s, ค่าเซนเซอร์ผิดพลาด {sum(faults.values())} แถว {faults or ''}")
+    print(f"{path.name}: {len(X)} rows, every {dt:.2f} s, sensor errors in {sum(faults.values())} rows {faults or ''}")
     for k, bm in bundle["models"].items():
         a = alarms(normalized(bm["model"], X, bm["thr"], bm["med"], det, dt), det, dt)
         first = f"{t[np.argmax(a)]:.0f} s" if a.any() else "-"
-        print(f"  {MODEL_NAMES[k]:34s} เตือน {a.mean() * 100:5.1f}%  เตือนครั้งแรกที่ {first}")
+        print(f"  {MODEL_NAMES[k]:34s} alarm {a.mean() * 100:5.1f}%  first alarm at {first}")
     mspc = bundle["models"]["mspc"]["model"]
     for c in explain(np.median((X - mspc.mu) / mspc.sd, axis=0), meta["features"]):
-        print(f"  สาเหตุที่น่าจะเป็น: {c['text']} (z = {c['z']})")
+        print(f"  Likely cause: {c['text']} (z = {c['z']})")
     return 0
 
 

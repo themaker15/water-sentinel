@@ -19,9 +19,9 @@ import pathlib
 import numpy as np
 
 CURVES = {
-    "generic_dfrobot": "ประมาณจากกราฟ DFRobot SEN0189 (ยังไม่ได้คาลิเบรตกับเครื่องวัดจริง)",
-    "generic_vendor": "ประมาณจากกราฟของผู้ขาย TSW-30 (ยังไม่ได้คาลิเบรตกับเครื่องวัดจริง)",
-    "user_points": "คาลิเบรตด้วยสารมาตรฐานของคุณเอง",
+    "generic_dfrobot": "Estimate from the DFRobot SEN0189 curve (not calibrated against a real meter)",
+    "generic_vendor": "Estimate from the TSW-30 vendor curve (not calibrated against a real meter)",
+    "user_points": "Calibrated with your own standards",
 }
 DEFAULTS = {"ntu_display": True, "v_clear": None, "t_clear": None, "noise_v": 0.003,
             "temp_coeff": -0.0022, "curve": "generic_vendor", "points": []}
@@ -69,7 +69,7 @@ def _build_curve(cal):
     if kind == "user_points":
         vc = cal.get("v_clear")
         if not vc:
-            raise ValueError("ต้องตั้งค่าน้ำใสก่อนจึงใช้จุดมาตรฐานได้")
+            raise ValueError("Set the clear-water reference before using standard points")
         pts = [(float(n), _norm(float(v), t, vc, cal.get("t_clear"), cal["temp_coeff"]))
                for n, v, t in ((p + [None])[:3] for p in cal.get("points", []))]
         if not any(abs(n) < 1e-9 for n, _ in pts):
@@ -78,11 +78,11 @@ def _build_curve(cal):
         r = [p[1] for p in pts]
         ntu = [p[0] for p in pts]
         if len(pts) < 2:
-            raise ValueError("ต้องมีจุดมาตรฐานอย่างน้อย 1 จุด")
+            raise ValueError("At least 1 standard point is needed")
         if any(b - a < 1e-6 for a, b in zip(r, r[1:])):
-            raise ValueError("มีจุดมาตรฐานสองจุดที่แรงดันเท่ากัน")
+            raise ValueError("Two standard points have the same voltage")
         if any(b > a + 1e-9 for a, b in zip(ntu, ntu[1:])):
-            raise ValueError("จุดมาตรฐานไม่เรียงตามความขุ่น: น้ำขุ่นมากกว่าควรให้แรงดันต่ำกว่า")
+            raise ValueError("Standard points are out of order: cloudier water should give a lower voltage")
     else:
         pts = _generic_points(kind if kind in CURVES else "generic_vendor")
         r, ntu = [p[1] for p in pts], [p[0] for p in pts]
@@ -191,16 +191,16 @@ def validate(patch):
     for k, (lo, hi) in rules.items():
         v = t.get(k)
         if v is not None and not (isinstance(v, (int, float)) and lo <= v <= hi):
-            raise ValueError(f"turbidity.{k} ต้องอยู่ระหว่าง {lo} ถึง {hi}")
+            raise ValueError(f"turbidity.{k} must be between {lo} and {hi}")
     if "curve" in t and t["curve"] not in CURVES:
-        raise ValueError("ไม่รู้จักกราฟแปลงค่าความขุ่นนี้")
+        raise ValueError("Unknown turbidity conversion curve")
     pts = t.get("points")
     if pts is not None:
         if not isinstance(pts, list) or len(pts) > 12:
-            raise ValueError("จุดมาตรฐานมีได้ไม่เกิน 12 จุด")
+            raise ValueError("At most 12 standard points")
         for p in pts:
             if not (isinstance(p, list) and 2 <= len(p) <= 3 and 0 <= p[0] <= 5000 and 0.02 <= p[1] <= 3.3):
-                raise ValueError("จุดมาตรฐานต้องเป็น [NTU 0-5000, แรงดัน V, อุณหภูมิ °C]")
+                raise ValueError("Standard points must be [NTU 0–5000, voltage V, temperature °C]")
     return patch
 
 
@@ -229,15 +229,15 @@ def fit_temp_coeff(data_dir, warmup_s=60, min_sessions=3, min_span_c=1.0, sessio
             per.setdefault(r["session"], []).append((float(np.median(t[ok])), float(np.median(v[ok]))))
     pts = [tuple(np.mean(a, axis=0)) for a in per.values()]
     if len(pts) < min_sessions:
-        raise ValueError(f"ต้องมีน้ำปกติอย่างน้อย {min_sessions} session (ตอนนี้มี {len(pts)})")
+        raise ValueError(f"At least {min_sessions} normal-water sessions are needed (currently {len(pts)})")
     T = np.array([p[0] for p in pts]); V = np.log([p[1] for p in pts])
     span = float(T.max() - T.min())
     if span < min_span_c:
-        raise ValueError(f"อุณหภูมิของแต่ละ session ต่างกันแค่ {span:.1f} °C (ต้องอย่างน้อย {min_span_c:g}) "
-                         "จึงยังประเมินสัมประสิทธิ์ไม่ได้")
+        raise ValueError(f"Session temperatures differ by only {span:.1f} °C (at least {min_span_c:g} needed) "
+                         "so the coefficient cannot be estimated yet")
     c, a = np.polyfit(T, V, 1)
     resid = V - (a + c * T)
     r2 = 1 - float(np.sum(resid ** 2) / max(np.sum((V - V.mean()) ** 2), 1e-12))
     return {"coeff": float(np.clip(c, -0.02, 0.0)), "raw_coeff": float(c), "n_sessions": len(pts),
             "t_span": round(span, 2), "r2": round(r2, 2),
-            "note": "ตำแหน่งหัววัด/แก้วที่ต่างกันก็ทำให้แรงดันเปลี่ยนได้ ใช้ค่านี้เมื่อ R² สูงและอุณหภูมิต่างกันหลายองศา"}
+            "note": "Different probe or cup positions also change the voltage. Use this value when R² is high and temperatures span several degrees"}

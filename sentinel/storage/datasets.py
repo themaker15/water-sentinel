@@ -34,21 +34,21 @@ def normalize_selection(sel):
         return None
     if files is not None:
         if not isinstance(files, dict):
-            raise ValueError("files ต้องเป็น {ชื่อไฟล์: role}")
+            raise ValueError("files must be {file name: role}")
         for f, r in files.items():
             if not isinstance(f, str) or "/" in f or "\\" in f or not f.endswith(".csv"):
-                raise ValueError(f"ชื่อไฟล์ไม่ถูกต้อง: {f}")
+                raise ValueError(f"Invalid file name: {f}")
             if r not in ROLES:
-                raise ValueError(f"role ของ {f} ต้องเป็น {', '.join(ROLES)}")
+                raise ValueError(f"role of {f} must be one of {', '.join(ROLES)}")
         files = dict(sorted(files.items()))
     if sensors is not None:
         sensors = [f for f in ALL_FEATURES if f in set(sensors)]
         if len(sensors) < 2:
-            raise ValueError("เลือกเซนเซอร์อย่างน้อย 2 ตัว")
+            raise ValueError("Select at least 2 sensors")
     if models is not None:
         bad = [m for m in models if m not in MODEL_KEYS]
         if bad:
-            raise ValueError(f"ไม่รู้จักโมเดล {bad}")
+            raise ValueError(f"Unknown model {bad}")
         models = [m for m in MODEL_KEYS if m == "mspc" or m in set(models)]   # MSPC explains causes and drift: always trained
     name = sel.get("dataset")
     return {"dataset": str(name) if name else None, "files": files, "sensors": sensors, "models": models}
@@ -86,10 +86,10 @@ def load_datasets(data_dir=DATA_DIR):
 def save_dataset(name, sel, note="", data_dir=DATA_DIR):
     name = (name or "").strip()
     if not NAME_OK.fullmatch(name):
-        raise ValueError("ตั้งชื่อชุดข้อมูลไม่เกิน 40 ตัวอักษร (ห้ามใช้ / \\)")
+        raise ValueError("Dataset name: 40 characters max (no / or \\)")
     sel = normalize_selection(sel)
     if not sel or sel["files"] is None:
-        raise ValueError("เลือกรอบข้อมูลก่อนบันทึกเป็นชุดข้อมูล")
+        raise ValueError("Select runs before saving a dataset")
     import time
     ds = load_datasets(data_dir)
     ds[name] = {"files": sel["files"], "sensors": sel["sensors"], "models": sel["models"],
@@ -102,7 +102,7 @@ def delete_dataset(name, data_dir=DATA_DIR):
     """Removes only the saved definition, never any data file."""
     ds = load_datasets(data_dir)
     if name not in ds:
-        raise ValueError("ไม่พบชุดข้อมูลนี้")
+        raise ValueError("Dataset not found")
     del ds[name]
     _path(data_dir).write_text(json.dumps(ds, ensure_ascii=False, indent=1), encoding="utf-8")
 
@@ -110,7 +110,7 @@ def delete_dataset(name, data_dir=DATA_DIR):
 def dataset_selection(name, data_dir=DATA_DIR):
     ds = load_datasets(data_dir)
     if name not in ds:
-        raise ValueError(f"ไม่พบชุดข้อมูล '{name}'")
+        raise ValueError(f"Dataset not found '{name}'")
     d = ds[name]
     return normalize_selection({"dataset": name, "files": d["files"], "sensors": d.get("sensors"),
                                 "models": d.get("models")})

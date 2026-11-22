@@ -41,7 +41,7 @@ def save_meta(path, patch):
         if k == "label":
             v = str(v).strip()
             if not LABEL_RE.fullmatch(v):
-                raise ValueError("label ใช้ได้เฉพาะ a-z 0-9 _ - (ห้ามเว้นวรรค)")
+                raise ValueError("Labels may only contain a-z 0-9 _ - (no spaces)")
         meta[k] = v
     sidecar_path(path).write_text(json.dumps(meta, ensure_ascii=False, indent=1), encoding="utf-8")
     return meta

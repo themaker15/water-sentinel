@@ -1,5 +1,5 @@
 <!doctype html>
-<html lang="th">
+<html lang="en">
 <head>
 <meta charset="utf-8">
 <meta name="viewport" content="width=device-width, initial-scale=1">
@@ -75,9 +75,9 @@ footer { color: var(--muted); font-size: 12px; margin-top: 18px; }
 <div class="wrap">
   <header>
     <div class="logo"><svg width="20" height="20" viewBox="0 0 32 32" aria-hidden="true"><path d="M16 3C11 10 7 15 7 20a9 9 0 0 0 18 0c0-5-4-10-9-17z" fill="#fff"/></svg></div>
-    <div><h1>Water Sentinel</h1><div style="color:var(--muted);font-size:13px">คุณภาพน้ำแบบสด · โมเดล MSPC 2 ตัว (4 และ 3 เซนเซอร์) ประมวลผลบนบอร์ด ESP32 · ดูได้อย่างเดียว</div></div>
+    <div><h1>Water Sentinel</h1><div style="color:var(--muted);font-size:13px">Live water quality · two MSPC models (4 and 3 sensors) running on the ESP32 board · read only</div></div>
     <span class="spacer"></span>
-    <span class="pill" id="age">กำลังโหลด...</span>
+    <span class="pill" id="age">Loading…</span>
     <button class="btn" id="btnQr">📱 QR</button>
   </header>
 
@@ -85,35 +85,35 @@ footer { color: var(--muted); font-size: 12px; margin-top: 18px; }
 
   <div class="hero" id="hero">
     <div class="ic" id="heroIc">⏳</div>
-    <div><div class="t" id="heroT">กำลังโหลด...</div><div class="s" id="heroS"></div></div>
+    <div><div class="t" id="heroT">Loading…</div><div class="s" id="heroS"></div></div>
   </div>
 
   <div class="tiles">
-    <div class="tile"><div class="k">อุณหภูมิ</div><div class="v"><span id="vTemp">–</span><span class="u">°C</span></div></div>
-    <div class="tile"><div class="k">TDS (สารละลาย)</div><div class="v"><span id="vTds">–</span><span class="u">ppm</span></div></div>
-    <div class="tile"><div class="k">ความขุ่น (แรงดัน)</div><div class="v"><span id="vTurb">–</span><span class="u">V</span></div></div>
+    <div class="tile"><div class="k">Temperature</div><div class="v"><span id="vTemp">–</span><span class="u">°C</span></div></div>
+    <div class="tile"><div class="k">TDS (dissolved solids)</div><div class="v"><span id="vTds">–</span><span class="u">ppm</span></div></div>
+    <div class="tile"><div class="k">Turbidity (voltage)</div><div class="v"><span id="vTurb">–</span><span class="u">V</span></div></div>
     <div class="tile" id="tilePh" hidden><div class="k">pH</div><div class="v"><span id="vPh">–</span></div></div>
-    <div class="tile"><div class="k">คะแนนความผิดปกติ (<span id="kModel">4</span> เซนเซอร์)</div><div class="v"><span id="vScore">–</span><span class="u">/ 1.00</span></div></div>
+    <div class="tile"><div class="k">Anomaly score (<span id="kModel">4</span> sensors)</div><div class="v"><span id="vScore">–</span><span class="u">/ 1.00</span></div></div>
   </div>
 
   <div class="grid">
     <div class="card wide">
-      <div class="row"><h2>คะแนนความผิดปกติ</h2>
-        <div class="seg" id="model"><button data-n="4" class="on">4 เซนเซอร์</button><button data-n="3">3 เซนเซอร์</button></div>
+      <div class="row"><h2>Anomaly score</h2>
+        <div class="seg" id="model"><button data-n="4" class="on">4 sensors</button><button data-n="3">3 sensors</button></div>
         <span class="spacer"></span>
-        <div class="seg" id="range"><button data-m="60" class="on">1 ชม.</button><button data-m="360">6 ชม.</button><button data-m="1440">24 ชม.</button></div></div>
+        <div class="seg" id="range"><button data-m="60" class="on">1 h</button><button data-m="360">6 h</button><button data-m="1440">24 h</button></div></div>
       <div class="box"><canvas id="cScore"></canvas></div>
-      <p class="note">0 = เหมือนน้ำปกติ · เส้นแดง 1.0 = เส้นเตือน · แถบแดง = ช่วงที่บอร์ดเตือน · บอร์ดรันโมเดล MSPC สองตัวพร้อมกันทุก 1 วินาที (4 เซนเซอร์เป็นตัวหลัก, 3 เซนเซอร์เป็นตัวสำรองเมื่อ pH มีปัญหา) และส่งค่าสรุปขึ้นมาทุก 15 วินาที</p>
+      <p class="note">0 = like normal water · red line 1.0 = alarm line · red bands = board alarm periods · the board runs two MSPC models every second (4 sensors as the main model, 3 sensors as a fallback when pH has a problem) and uploads a summary every 15 s</p>
     </div>
-    <div class="card"><h2>อุณหภูมิ (°C)</h2><div class="box"><canvas id="cTemp"></canvas></div></div>
+    <div class="card"><h2>Temperature (°C)</h2><div class="box"><canvas id="cTemp"></canvas></div></div>
     <div class="card"><h2>TDS (ppm)</h2><div class="box"><canvas id="cTds"></canvas></div></div>
-    <div class="card"><h2>ความขุ่น (V) · ค่าต่ำลง = น้ำขุ่นขึ้น</h2><div class="box"><canvas id="cTurb"></canvas></div></div>
+    <div class="card"><h2>Turbidity (V) · lower = cloudier water</h2><div class="box"><canvas id="cTurb"></canvas></div></div>
     <div class="card" id="cardPh" hidden><h2>pH</h2><div class="box"><canvas id="cPh"></canvas></div></div>
   </div>
-  <footer>ข้อมูลจาก ThingSpeak · การเตือนเป็นการตรวจจับ "ผิดไปจากน้ำปกติที่เคยเก็บ" ไม่ได้บอกว่าน้ำปลอดภัยหรือไม่</footer>
+  <footer>Data from ThingSpeak · an alarm means the water "differs from the normal water recorded before" ; it does not say whether the water is safe</footer>
 </div>
 
-<div class="qr" id="qr" hidden><div><div id="qrImg"></div><div class="url" id="qrUrl"></div><p style="color:#64748b;margin:6px 0 0">สแกนเพื่อดูบนมือถือ</p></div></div>
+<div class="qr" id="qr" hidden><div><div id="qrImg"></div><div class="url" id="qrUrl"></div><p style="color:#64748b;margin:6px 0 0">Scan to view on your phone</p></div></div>
 
 <script src="https://cdnjs.cloudflare.com/ajax/libs/Chart.js/4.4.1/chart.umd.min.js"></script>
 <script src="https://cdnjs.cloudflare.com/ajax/libs/qrcode-generator/1.4.4/qrcode.min.js"></script>
@@ -126,15 +126,15 @@ const POLL_MS = 15000, STALE_S = 90;
    the on-board MSPC model has sent: everything before this moment is hidden (nothing is deleted from ThingSpeak). */
 const REAL_BOARD_SINCE = new Date("2026-11-17T19:00:00Z").getTime();
 const STATUS = {
-  0: { t: "บอร์ดกำลังเริ่มต้น", s: "รอค่าครบหน้าต่างกรอง", ic: "⏳", c: "" },
-  1: { t: "น้ำปกติ", s: "ค่าทุกเซนเซอร์อยู่ในช่วงของน้ำปกติ", ic: "✅", c: "ok" },
-  2: { t: "ตรวจพบความผิดปกติ", s: "", ic: "🚨", c: "bad" },
-  3: { t: "เซนเซอร์มีปัญหา", s: "หัววัดอาจหลุดจากน้ำหรือสายหลวม", ic: "⚠️", c: "warn" },
+  0: { t: "Board starting", s: "Waiting for the filter window to fill", ic: "⏳", c: "" },
+  1: { t: "Normal water", s: "All sensors are within normal-water range", ic: "✅", c: "ok" },
+  2: { t: "Anomaly detected", s: "", ic: "🚨", c: "bad" },
+  3: { t: "Sensor problem", s: "The probe may be out of the water or a cable is loose", ic: "⚠️", c: "warn" },
 };
 /* Firmware v3 (from DUAL_SINCE) runs two models and packs them: field5 = score (4 sensors), field8 = score (3 sensors),
    field6 = status4 + 10*status3, field7 = driver4 + 10*driver3. Older rows hold only the 3-sensor model (field8 = z). */
 const DUAL_SINCE = new Date("2026-11-18T03:22:30Z").getTime();
-const DRIVER = { 1: "อุณหภูมิ", 2: "TDS", 3: "ความขุ่น", 4: "pH" };
+const DRIVER = { 1: "Temperature", 2: "TDS", 3: "Turbidity", 4: "pH" };
 let view = 4;
 try { const v = +localStorage.getItem("ws_model"); if (v === 3 || v === 4) view = v; } catch (e) {}
 const $ = (id) => document.getElementById(id);
@@ -152,14 +152,14 @@ async function load() {
     const r = await fetch(url, { cache: "no-store" });
     if (!r.ok) throw new Error("HTTP " + r.status);
     const data = await r.json();
-    if (data === -1 || !data.feeds) throw new Error("อ่าน channel ไม่ได้ (ตรวจ Channel ID / Read key)");
+    if (data === -1 || !data.feeds) throw new Error("Cannot read the channel (check Channel ID / Read key)");
     $("err").hidden = true;
     const since = Math.max(Date.now() - minutes * 60000, REAL_BOARD_SINCE);
     feeds = data.feeds.filter((f) => new Date(f.created_at).getTime() >= since);
     render(decode(feeds));
   } catch (e) {
     $("err").hidden = false;
-    $("err").textContent = "โหลดข้อมูลไม่ได้: " + e.message + " · จะลองใหม่อัตโนมัติ";
+    $("err").textContent = "Could not load data: " + e.message + " · retrying automatically";
   }
 }
 
@@ -191,25 +191,25 @@ function head(rows) {
   const hero = $("hero");
   if (!last) {
     hero.className = "hero"; $("heroIc").textContent = "📡";
-    $("heroT").textContent = "ยังไม่มีข้อมูลในช่วงเวลานี้"; $("heroS").textContent = "บอร์ดยังไม่ได้ส่งค่าขึ้นมา ลองเลือกช่วงเวลาที่ยาวขึ้น";
-    $("age").textContent = "ไม่มีข้อมูล"; return;
+    $("heroT").textContent = "No data in this time range yet"; $("heroS").textContent = "The board has not uploaded yet. Try a longer time range";
+    $("age").textContent = "No data"; return;
   }
   const age = (Date.now() - last.t.getTime()) / 1000;
   const stale = age > STALE_S;
-  $("age").textContent = "อัปเดต " + (age < 60 ? Math.round(age) + " วินาทีที่แล้ว" : last.t.toLocaleTimeString("th-TH", { hour12: false }));
+  $("age").textContent = "Updated " + (age < 60 ? Math.round(age) + " s ago" : last.t.toLocaleTimeString("en-GB", { hour12: false }));
   let st = STATUS[last.status] || STATUS[0], note = "";
   if (view === 4 && last.status === 3 && (last.alt === 1 || last.alt === 2)) {
-    st = STATUS[last.alt]; note = " · pH มีปัญหา บอร์ดใช้โมเดล 3 เซนเซอร์แทน";
+    st = STATUS[last.alt]; note = " · pH problem: the board is using the 3-sensor model";
   }
   const alarm = st === STATUS[2];
   if (stale) {
     hero.className = "hero warn"; $("heroIc").textContent = "📡";
-    $("heroT").textContent = "บอร์ดออฟไลน์";
-    $("heroS").textContent = "ไม่ได้รับข้อมูลมา " + Math.round(age / 60) + " นาที (ค่าที่เห็นคือค่าล่าสุด)";
+    $("heroT").textContent = "Board offline";
+    $("heroS").textContent = "No data received for " + Math.round(age / 60) + " min (showing the last values)";
   } else {
     hero.className = "hero " + st.c; $("heroIc").textContent = st.ic; $("heroT").textContent = st.t;
     $("heroS").textContent = (alarm
-      ? `เซนเซอร์ที่เปลี่ยนมากที่สุด: ${DRIVER[last.driver] || "?"}`
+      ? `Sensor that changed most: ${DRIVER[last.driver] || "?"}`
       : st.s) + note;
   }
   $("vTemp").textContent = fmt(last.temp, 2); $("vTds").textContent = fmt(last.tds, 0);
@@ -263,10 +263,10 @@ function chart(id, sets, extra = {}) {
       animation: false, responsive: true, maintainAspectRatio: false, parsing: false,
       interaction: { mode: "nearest", intersect: false, axis: "x" },
       plugins: { legend: { display: false }, bands: extra.bands || {},
-        tooltip: { callbacks: { title: (it) => new Date(it[0].parsed.x).toLocaleString("th-TH", { hour12: false }) } } },
+        tooltip: { callbacks: { title: (it) => new Date(it[0].parsed.x).toLocaleString("en-GB", { hour12: false }) } } },
       scales: {
         x: { type: "linear", ticks: { color: muted, maxTicksLimit: 6,
-          callback: (v) => new Date(v).toLocaleTimeString("th-TH", { hour: "2-digit", minute: "2-digit", hour12: false }) },
+          callback: (v) => new Date(v).toLocaleTimeString("en-GB", { hour: "2-digit", minute: "2-digit", hour12: false }) },
           grid: { color: grid } },
         y: { ticks: { color: muted }, grid: { color: grid }, ...(extra.y || {}) },
       },
