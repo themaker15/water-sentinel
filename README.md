@@ -1,139 +1,149 @@
-# 💧 Water Sentinel
+# Water Sentinel
 
-ระบบตรวจจับความผิดปกติของน้ำแบบเรียลไทม์ ด้วย ESP32 + เซนเซอร์อุณหภูมิ, TDS, ความขุ่น และ pH (เลือกได้)
-เรียนรู้จากน้ำปกติอย่างเดียว (unsupervised, Normal Operating Condition) แล้วเตือนทันทีเมื่อน้ำเปลี่ยน
-พร้อมหน้าเว็บที่ดูจากมือถือได้ และแจ้งเตือนเข้ามือถือ
+Real-time water-quality anomaly detection with an ESP32 and four low-cost sensors (temperature, TDS, turbidity, optional pH).
+It learns from normal water only (unsupervised, normal operating conditions) and alarms as soon as the water changes.
+A web app runs on a laptop for recording, training and monitoring, and a read-only dashboard can be shared with anyone.
 
-Course project: 2306565 Digital Lab, Chemical Engineering, Chulalongkorn University
+![Overview: the anomaly score shown as a graduated cylinder, with live sensor readouts](docs/images/overview.png)
 
-## เริ่มใช้งาน (Windows)
+Course project: 2306565 Digital Lab, Chemical Engineering, Chulalongkorn University.
 
-1. ติดตั้ง Python 3.11+ (ติ๊ก *Add to PATH*)
-2. อัปโหลด `firmware/water_sentinel/water_sentinel.ino` ลง ESP32 (Arduino IDE, ไลบรารี OneWire + DallasTemperature)
-3. ดับเบิลคลิก **`start.bat`** ครั้งแรกจะติดตั้งไลบรารีให้เอง แล้วเปิดเบราว์เซอร์ที่ http://127.0.0.1:8000
-4. ไม่มีบอร์ด? ดับเบิลคลิก **`start_sim.bat`** เพื่อลองทุกอย่างด้วยข้อมูลจำลอง
+## Quick start (Windows)
 
-> ปิด Arduino Serial Monitor ก่อนเสมอ เพราะพอร์ต USB ใช้ได้ทีละโปรแกรม
+1. Install Python 3.11+ (tick *Add to PATH*).
+2. Upload `firmware/water_sentinel/water_sentinel.ino` to the ESP32 (Arduino IDE, libraries OneWire + DallasTemperature).
+3. Double-click **`start.bat`**. The first run installs the Python packages, then opens http://127.0.0.1:8000.
+4. No board yet? Double-click **`scripts/start_sim.bat`** to try everything with simulated water.
 
-## ขั้นตอนการทำงาน
+> Close the Arduino Serial Monitor first: only one program can use the USB port at a time.
 
-| ขั้น | แท็บ | ทำอะไร |
+macOS / Linux: `python -m pip install -r requirements.txt && python run.py` (add `--sim` for the simulator).
+
+## How it works
+
+| Step | Tab | What you do |
 |---|---|---|
-| 1 | เก็บข้อมูล | เก็บน้ำปกติ ≥ 5 รอบ (แก้วละรอบ รอบละ 5 นาที) และ anomaly รอบละ 3 นาที (เกลือ, แป้ง, น้ำร้อน, ...) |
-| 2 | เทรน & เปรียบเทียบ | กดปุ่มเดียว เทรนและประเมิน 5 โมเดล ระบบเลือกตัวที่ดีที่สุดให้ · หรือเลือกเองว่ารอบไหนใช้เทรน/กันไว้ทดสอบ เซนเซอร์ไหน โมเดลไหน แล้วบันทึกเป็น "ชุดข้อมูล" |
-| 3 | ภาพรวม | เปิด **โหมดเฝ้าระวัง** ทิ้งไว้ จุ่มหัววัด ถ้าผิดปกติจะเตือนทันที (เสียง + เบราว์เซอร์ + มือถือ) |
-| 3b | ภาพรวม → ข้อมูลที่บันทึกไว้ | เลือกหลายรอบมาซ้อนดู เทียบน้ำปกติกับน้ำเติมสาร ดูค่าเฉลี่ย/noise/แนวโน้ม ส่งออก PNG และ CSV |
-| 4 | Visualization | คะแนนตามเวลา, ROC, scatter + ขอบเขตน้ำปกติ, PCA / t-SNE / UMAP |
+| 1 | Record | Record normal water at least 5 times (one cup per run, 5 min each) and anomaly runs of 3 min (salt, starch, hot water, ...) |
+| 2 | Train & compare | One button trains and evaluates 5 models and activates the best. Or choose which runs train or test, which sensors and which models, and save the choice as a named dataset |
+| 3 | Overview | Turn on **Monitoring** and leave the probes in the water. Abnormal water raises an alarm at once (sound, browser, phone) |
+| 3b | Overview → Recorded | Overlay several runs, compare normal water with dosed water, see mean, noise and trend, export PNG and CSV |
+| 4 | Visualization | Score over time, ROC, scatter with the normal-water boundary, PCA / t-SNE / UMAP |
 
-**session = น้ำหนึ่งชุด**: รอบที่เก็บต่อกันโดยไม่เปลี่ยนน้ำนับเป็น session เดียว (ติ๊ก "เปลี่ยนน้ำใหม่แล้ว" ทุกครั้งที่เปลี่ยนน้ำ) ระบบประเมินโดยกันทั้ง session ออก จึงต้องมีน้ำปกติอย่างน้อย 3 session
+**A session is one batch of water.** Runs recorded in the same water count as one session (tick "New water" every time you change it).
+Evaluation holds out whole sessions, so at least 3 sessions of normal water are needed.
 
-ข้อมูลสดทุกค่าถูกเก็บใน `logs/stream-*.csv` และทุกครั้งที่เตือน ระบบบันทึกช่วงนั้นเป็นรอบ `unlabeled` ให้เอง ไปตั้งชื่อที่แท็บเก็บข้อมูลแล้วใช้เทรนได้
+Every live reading is logged to `runtime/logs/stream-*.csv`, and every alarm saves the surrounding minutes as an `unlabeled` run.
+Label it on the Record tab and it becomes training data. Monitoring resumes by itself after a restart;
+`scripts/autostart.bat` starts the app when you sign in to Windows.
 
-เทรนครั้งเดียวแล้วเปิดเฝ้าระวังทิ้งไว้ได้ โปรแกรมจำสถานะไว้ เปิดใหม่ก็กลับมาเฝ้าระวังต่อเอง
-`autostart.bat` ตั้งให้เปิดเองตอนเข้า Windows
+## Algorithm
 
-## ความขุ่นเป็น NTU
+All models share the same pipeline, so the comparison is fair:
 
-เซนเซอร์ให้แรงดัน ไม่ใช่ NTU จริง: ตั้งค่า → ความขุ่น → จุ่มในน้ำใสแล้วกด "ตั้งเป็นน้ำใส" ระบบจะแสดงเป็น NTU (ขึ้นต้นว่า "ประมาณ" จนกว่าจะเพิ่มจุดมาตรฐานของคุณเอง) ค่าต่ำกว่าที่เซนเซอร์แยกได้จะแสดงเป็น `< N NTU` โมเดลตรวจจับยังใช้แรงดันดิบเหมือนเดิม
+1. **Separate sensor faults from bad water.** A probe out of the water, a saturated ADC or a disconnected sensor is reported as a sensor problem, not as abnormal water.
+2. **Rolling median** removes spikes from air bubbles.
+3. **A model** scores how far the water is from normal.
+4. **The alarm line comes from cross-validation between runs** (so cup-to-cup and day-to-day variation is already included).
+   The alarm needs several readings in a row above the line and has hysteresis when it clears.
 
-## สาเหตุที่เป็นไปได้ (ทดลอง)
-
-เมื่อเตือน ระบบดู "ทิศทางที่เซนเซอร์เปลี่ยน" แล้วบอกว่าสอดคล้องกับสารกลุ่มไหน (เกลือ, ด่าง, กรด, ของแข็งแขวนลอย, น้ำอุ่น/เย็น, หัววัดถูกรบกวน) โดยเริ่มจากกฎทั่วไป และเรียนรู้จากรอบ anomaly ที่คุณตั้งชื่อไว้ ถ้าไม่ตรงกับอะไรเลยจะบอกว่า "ไม่ทราบสาเหตุ" ไม่ใช่การยืนยันว่าเป็นสารอะไร และไม่ได้บอกว่าน้ำปลอดภัยหรือไม่ เซนเซอร์ 3 ตัวแยกเกลือธรรมดากับเบกกิ้งโซดาไม่ได้ (ต้องมี pH)
-
-## ใช้ pH ด้วย (4 เซนเซอร์)
-
-- ต่อ Po ของบอร์ด pH ผ่านตัวแบ่งแรงดัน 10k/10k เข้า D35 (ห้ามต่อตรงเมื่อบอร์ด pH ใช้ไฟ 5 V)
-- ตั้งค่า → เปิด "ใช้เซนเซอร์ pH" → คาลิเบรต pH สองจุด (เช่น 6.86 และ 4.01)
-- เก็บข้อมูลใหม่ (ไฟล์เก่าที่ไม่มี pH จะถูกข้ามอัตโนมัติ) แล้วเทรนแบบ 4 เซนเซอร์
-- หัววัด pH กับ TDS ในน้ำเดียวกันรบกวนกันได้ ดูตัวเลือก `TDS_POWER_PIN` ใน firmware
-
-## อัลกอริทึม
-
-ทุกโมเดลใช้ขั้นตอนเดียวกัน จึงเทียบกันได้ยุติธรรม:
-
-1. **แยกเซนเซอร์เสียออกจากน้ำเสีย**: หัววัดพ้นน้ำ, ADC อิ่มตัว, เซนเซอร์หลุด → แจ้งเป็น "เซนเซอร์มีปัญหา" ไม่นับเป็นน้ำผิดปกติ
-2. **Rolling median 5 ค่า** ตัดสัญญาณกระชากจากฟองอากาศ
-3. **โมเดล** ให้คะแนนความผิดปกติ
-4. **เส้นเตือนจาก cross-validation ระหว่างรอบ** (รวมความต่างระหว่างแก้ว/วันไว้แล้ว) และเตือนเมื่อเกินติดกัน 3 ค่า มี hysteresis ตอนเลิกเตือน
-
-| โมเดล | แนวคิด |
+| Model | Idea |
 |---|---|
-| **MSPC** (ค่าเริ่มต้น) | Robust Mahalanobis distance + EWMA: มาตรฐานงาน process monitoring สำหรับเซนเซอร์ไม่กี่ตัวที่สัมพันธ์กัน |
-| PCA (T² + Q) | ลดมิติแล้วดูระยะในและนอกระนาบหลัก |
-| Isolation Forest | ต้นไม้สุ่มแยกจุดโดดเดี่ยว |
-| One-Class SVM | ขอบเขตน้ำปกติแบบ kernel |
-| Local Outlier Factor | เทียบความหนาแน่นกับเพื่อนบ้าน |
+| **MSPC** (default) | Robust Mahalanobis distance + EWMA, the standard for monitoring a few correlated process sensors |
+| PCA (T² + Q) | Distance inside and outside the main plane |
+| Isolation Forest | Random trees isolate unusual points |
+| One-Class SVM | Kernel boundary around normal water |
+| Local Outlier Factor | Density compared with neighbours |
 
-การประเมิน: **leave-one-run-out** แต่ละรอบ normal ถูกกันไว้ทดสอบทีละรอบ ตัวชี้วัด = false alarm, detection, balanced accuracy, ROC-AUC, เวลาจนเตือน, ความเร็ว
+A CUSUM **drift** channel warns early when values creep slowly in one direction, without adapting the baseline
+(so slow contamination is not absorbed). Metrics: false alarms, detection, balanced accuracy, ROC-AUC, time to alarm, speed.
 
-## แจ้งเตือนเข้ามือถือ
+**Likely cause (experimental).** On an alarm the direction of change is matched against substance families
+(dissolved salts, alkaline salt, acid, suspended solids, warmer or colder water, disturbed probe), first by physical rules and then
+by the anomaly runs you labelled. "Unknown" is a valid answer. It never confirms a substance and says nothing about safety.
+With three sensors, table salt and baking soda cannot be told apart; pH separates them.
 
-- **ntfy** (แนะนำ ไม่ต้องสมัคร): ติดตั้งแอป ntfy → subscribe ชื่อ topic เดียวกับในหน้าตั้งค่า
-- **Telegram**: bot token + chat id
-- **LINE**: LINE Messaging API (LINE Notify ปิดบริการไปแล้ว)
+**Turbidity in NTU.** The sensor outputs a voltage, not NTU. Settings → Turbidity → dip in clear water and press
+"Set as clear water"; values are then shown in NTU, marked as estimates until you add your own standards. Detection still uses the raw voltage.
 
-## ดูจากมือถือที่ไหนก็ได้
+## Adding pH (4 sensors)
 
-ติดตั้ง [Tailscale](https://tailscale.com) ในคอมที่ต่อ ESP32 และในมือถือ (บัญชีเดียวกัน) → ตั้งค่า → เปิด "อนุญาตเข้าจากเครื่องอื่น" + ตั้ง PIN → รีสตาร์ทโปรแกรม → เปิด `http://<IP Tailscale ของคอม>:8000` จากมือถือ
+- Connect the pH board's Po through a 10k/10k divider to D35 (never directly when the pH board runs on 5 V).
+- Settings → "Use the pH sensor" → two-point pH calibration (e.g. 6.86 and 4.01).
+- Record new runs (older files without pH are skipped automatically), then train with 4 sensors.
+- pH and TDS probes in the same water can interfere; see `TDS_POWER_PIN` in the firmware.
 
-## ให้คนอื่นดู (พรีเซนต์)
+## Alerts and remote viewing
 
-ตั้งค่า → การ์ด **"ลิงก์ให้คนดู"** → กด "เริ่มลิงก์สาธารณะ" ได้ลิงก์ `https://….trycloudflare.com` และปุ่ม **QR เต็มจอ** ให้คนในห้องสแกน (ปุ่ม "📱 QR ให้คนดู" อยู่ที่หน้าภาพรวมด้วย)
+- **Phone alerts:** ntfy (no sign-up: subscribe to the same topic as in Settings), Telegram (bot token + chat id) or the LINE Messaging API.
+- **Your own phone, anywhere:** install [Tailscale](https://tailscale.com) on the laptop and phone, enable "Allow access from other devices", set a PIN and open `http://<laptop Tailscale IP>:8000`.
+- **Presentations:** Settings → *Viewer link for presentations* → "Start public link" gives a `https://….trycloudflare.com` address and a full-screen QR code.
+  Viewers see everything live but **cannot change anything** (the server refuses every write, not just hidden buttons) and never see secrets.
+  Install cloudflared once: `winget install --id Cloudflare.cloudflared`.
 
-- ครั้งแรกต้องติดตั้ง cloudflared: `winget install --id Cloudflare.cloudflared` แล้วเปิดโปรแกรมใหม่
-- คนดูเห็นค่าสด กราฟ ผลโมเดล ข้อมูลที่บันทึก แต่ **แก้ไขอะไรไม่ได้** (เซิร์ฟเวอร์ปฏิเสธเอง ไม่ใช่แค่ซ่อนปุ่ม) และไม่เห็นค่าลับ (PIN, token, ntfy topic)
-- ผู้ดูแลเข้าสู่ระบบผ่านลิงก์เดียวกันด้วย PIN (อย่างน้อย 6 ตัว ใส่ผิด 8 ครั้งล็อก 15 นาที)
-- ลิงก์เปลี่ยนทุกครั้งที่เริ่มใหม่ อยากได้ลิงก์คงที่ใช้ `tailscale funnel --bg 8000` แล้วใส่ที่อยู่ในการ์ดเดียวกัน
-- คอมต้องเปิดโปรแกรมค้างไว้ระหว่างพรีเซนต์ ปิดโปรแกรม = ลิงก์ปิดด้วย
+## Board-only mode (the ESP32 detects by itself)
 
-## Board-only mode (ESP32 detects by itself) — simulate it first
+The ESP32 runs MSPC on the board, alerts via ntfy and pushes a summary to ThingSpeak every 15 s.
+`frontend/dashboard/` is a single static page that reads that channel. Netlify publishes it from this repository (`netlify.toml`); [Netlify Drop](https://app.netlify.com/drop) works too.
 
-The ESP32 will run MSPC itself, alert via ntfy, and push a summary to ThingSpeak every 15 s. Until the
-firmware is ready, `py -m sentinel edge-sim` pretends to be the board on this laptop (same maths, tested
-against the app).
+- `py -m sentinel export-edge` writes `runtime/model/edge_model.json` and `edge_model.h` for the firmware.
+- `py -m sentinel edge-sim` pretends to be the board on the laptop (same maths, tested against the app).
+  Copy `runtime/edge_secrets.example.json` to `runtime/edge_secrets.json` and add the ThingSpeak write key and ntfy topic first.
 
-1. ThingSpeak: create a channel with 8 fields (temp, TDS, turbidity V, pH, score, status, driver, driver z).
-2. Copy `edge_secrets.example.json` to `edge_secrets.json` and paste the Write API key and an ntfy topic.
-3. `py -m sentinel edge-sim` (type `salt`, `starch`, `normal` + Enter to change the water), or
-   `py -m sentinel edge-sim --script normal:120,salt:90,normal:120`. `--dry-run` sends nothing.
-
-`py -m sentinel export-edge` writes `model/edge_model.json` and `model/edge_model.h` for the firmware.
+![Public dashboard during an alarm (simulated data)](docs/images/dashboard.png)
 
 ## Command line
 
 ```
-py run.py --sim                 เปิดแบบจำลอง
-py -m sentinel train            เทรน + เปรียบเทียบโมเดลจาก data/
-py -m sentinel train --ph       เทรนแบบ 4 เซนเซอร์
-py -m sentinel train --dataset NAME   เทรนจากชุดข้อมูลที่บันทึกไว้ (data/datasets.json)
-py -m sentinel edge-sim         ESP32 simulator → ThingSpeak + ntfy
-py -m sentinel test data\run006_salt_lvl1_....csv
-py -m pytest -q                 ทดสอบทั้งระบบด้วยตัวจำลอง
+py run.py --sim                          start with simulated water
+py -m sentinel train                     train + compare models on runtime/data/
+py -m sentinel train --ph                force 4 sensors
+py -m sentinel train --dataset NAME      train on a saved dataset
+py -m sentinel test runtime\data\run006_salt_lvl1_....csv
+py -m sentinel edge-sim                  simulated board -> ThingSpeak + ntfy
+py -m pytest -q                          full test suite (simulator, no hardware)
 ```
-API docs อัตโนมัติ: http://127.0.0.1:8000/docs
 
-## โครงสร้าง
+API documentation is generated at http://127.0.0.1:8000/docs.
+
+## Project layout
 
 ```
-run.py                 จุดเริ่มโปรแกรม
-sentinel/
-  config.py            ค่าตั้งต้นทั้งหมด (ค่าจริงอยู่ใน config.json)
-  features.py          แปลงแรงดันเป็นค่าที่ใช้ (TDS ppm, pH), ตรวจเซนเซอร์เสีย
-  models.py            5 โมเดล + ขั้นตอนให้คะแนน/เส้นเตือน
-  training.py          เทรน, ประเมิน, embedding (PCA/t-SNE/UMAP)
-  live.py              ให้คะแนนทีละค่าแบบเรียลไทม์
-  sources.py           USB serial, ตัวจำลอง
-  hub.py               สถานะกลาง, บันทึกข้อมูล, เหตุการณ์, แจ้งเตือน
-  turbidity.py         แรงดันความขุ่น → NTU (ประมาณ/คาลิเบรตเอง), ลิมิตการตรวจวัด
-  causes.py            สาเหตุที่เป็นไปได้ (กฎ + nearest-centroid + unknown)
-  datasets.py          role ของแต่ละรอบ, ชุดข้อมูลที่ตั้งชื่อ
-  explorer.py          รายละเอียดรอบที่บันทึก, ค่าลักษณะ, ย้ายเก็บ/นำกลับ
-  share.py             ลิงก์สาธารณะสำหรับคนดู (cloudflared quick tunnel)
-  alerts.py            ntfy / Telegram / LINE
-  server.py            FastAPI + ความปลอดภัย
-web/                   หน้าเว็บ (HTML/CSS/JS + Chart.js)
-firmware/              โค้ด ESP32
-docs/ARCHITECTURE.md   สถาปัตยกรรมและแนวทางต่อยอด
-tests/                 ทดสอบ end-to-end
-data/ model/ logs/     ข้อมูลส่วนตัว (ไม่ขึ้น git)
+02_software/
+├── start.bat              double-click to start (the only thing to remember)
+├── run.py                 entry point (start.bat calls it)
+├── pyproject.toml         package metadata, dependencies, test and lint settings
+├── requirements.txt       pinned minimums for start.bat
+├── AGENTS.md              rules for AI coding assistants
+│
+├── sentinel/              backend (Python package), grouped by role
+│   ├── config.py          defaults and folder paths (your values live in runtime/config.json)
+│   ├── __main__.py        `py -m sentinel ...` commands
+│   ├── acquisition/       reading sensors: serial and simulator sources, features, turbidity in NTU
+│   ├── storage/           recorded runs and metadata, named datasets, data explorer
+│   ├── detection/         models, training and evaluation, tuning, drift (CUSUM), likely cause, live scoring
+│   ├── edge/              ESP32 model export (JSON + C header) and the board simulator
+│   └── app/               the running app: Hub (state + threads), FastAPI server, alerts, public link
+│
+├── frontend/
+│   ├── app/               laptop web UI (HTML, CSS, plain JS, vendored Chart.js and fonts)
+│   └── dashboard/         public read-only dashboard (one static page for Netlify)
+├── firmware/              ESP32 Arduino sketches
+├── tests/                 end-to-end tests with the simulator
+├── docs/                  ARCHITECTURE.md, DESIGN.md (design system), plans, images
+├── scripts/               start_sim.bat, autostart.bat
+└── runtime/               everything the app writes (git-ignored): config.json, keys, data/, model/, logs/
 ```
+
+## Development
+
+```
+python -m pip install -e ".[dev]"
+python -m pytest -q          # 23 tests, about 90 s, no hardware needed
+ruff check .                 # lint
+```
+
+CI runs both on every push (`.github/workflows/ci.yml`). Code, comments and UI text are in English.
+How to extend the app (new sensor, new model, new page) is in [docs/ARCHITECTURE.md](docs/ARCHITECTURE.md);
+colours, type and layout rules are in [docs/DESIGN.md](docs/DESIGN.md).
+
+An alarm means the water differs from the normal water you recorded. It does not say whether the water is safe to drink.

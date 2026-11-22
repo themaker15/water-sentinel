@@ -1,0 +1,372 @@
+<!doctype html>
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1, viewport-fit=cover">
+<meta name="theme-color" content="#e4eceb">
+<meta name="description" content="Water Sentinel: real-time water-quality anomaly detection with an ESP32 and four low-cost sensors.">
+<title>Water Sentinel</title>
+<link rel="icon" href="data:image/svg+xml,%3Csvg xmlns='http://www.w3.org/2000/svg' viewBox='0 0 22 30'%3E%3Cpath d='M3 2v22a5 5 0 0 0 5 5h6a5 5 0 0 0 5-5V2' fill='none' stroke='%231f5fbf' stroke-width='2.5'/%3E%3Cpath d='M3 14h16v10a5 5 0 0 1-5 5H8a5 5 0 0 1-5-5z' fill='%231f5fbf'/%3E%3C/svg%3E">
+<link rel="stylesheet" href="/static/fonts.css">
+<link rel="stylesheet" href="/static/tokens.css">
+<link rel="stylesheet" href="/static/style.css">
+<script src="/static/vendor/chart.umd.js"></script>
+</head>
+<body>
+<header class="top">
+  <div class="top-inner">
+    <div class="brand"><svg class="logo" viewBox="0 0 22 30" aria-hidden="true"><path d="M3 2v22a5 5 0 0 0 5 5h6a5 5 0 0 0 5-5V2" fill="none" stroke="currentColor" stroke-width="2.5"/><path d="M3 14h16v10a5 5 0 0 1-5 5H8a5 5 0 0 1-5-5z" fill="currentColor"/></svg>Water Sentinel</div>
+    <span class="pill" id="linkPill"><span class="dot" id="linkDot"></span><span id="linkText">Connecting…</span></span>
+    <span class="pill warn" id="fwPill" hidden></span>
+    <span class="pill" id="modelPill">No model</span>
+    <select class="pill admin-only" id="modelSel" title="Choose a trained model" hidden
+      style="width:auto;padding:5px 30px 5px 11px;cursor:pointer;font:inherit;font-size:13px"></select>
+  </div>
+  <nav class="tabs" id="tabs" aria-label="Sections">
+    <button data-v="live" class="on">Overview</button>
+    <button data-v="record" class="admin-only">Record</button>
+    <button data-v="model">Train &amp; compare</button>
+    <button data-v="viz">Visualization</button>
+    <button data-v="settings" class="admin-only">Settings</button>
+  </nav>
+  <div class="viewer-bar" id="viewerBar" hidden>Viewer mode: read only · <a href="/login">Admin sign-in</a></div>
+</header>
+
+<main>
+<!-- ======================= LIVE ======================= -->
+<section class="view on" id="v-live">
+  <div class="row" style="margin-bottom:14px">
+    <div class="seg" id="liveSeg"><button data-m="live" class="on">Live</button><button data-m="rec">Recorded</button></div>
+    <span class="spacer"></span><button class="btn ghost sm" id="btnQr" hidden title="Let people in the room scan to watch">Viewer QR code</button>
+    <span class="pill" id="liveAlarmPill" hidden style="background:var(--bad-bg);color:var(--bad);border-color:transparent;cursor:pointer"></span>
+  </div>
+  <div class="grid" id="liveBox">
+    <section class="hero span-12 s-off" id="hero" aria-live="polite">
+      <div class="hero-state">
+        <span class="icon" id="heroIcon" aria-hidden="true"></span>
+        <h1 class="title" id="heroTitle">Monitoring is off</h1>
+        <p class="sub" id="heroSub">Turn on the switch to start real-time anomaly detection</p>
+        <div class="hero-controls">
+          <label class="switch admin-only"><input type="checkbox" id="monitorToggle"><span class="track"></span><span>Monitoring</span></label>
+          <span class="hint" id="heroModel"></span>
+        </div>
+      </div>
+      <figure class="cyl" aria-hidden="true">
+        <ol class="grads"><li style="--at:0">0</li><li style="--at:.3333">0.5</li><li class="alarm" style="--at:.6667">1.0 alarm</li><li style="--at:1">1.5+</li></ol>
+        <div class="tube" id="cylTube"><div class="liquid"></div><div class="alarm-mark"></div></div>
+      </figure>
+      <div class="hero-reading">
+        <span class="reading" id="heroScore">–</span>
+        <span class="reading-cap">anomaly score<br>alarm at 1.00</span>
+      </div>
+    </section>
+
+    <div class="span-12 notice warn" id="staleNote" hidden></div>
+    <div class="span-12 grid" id="tiles" style="grid-template-columns:repeat(auto-fit,minmax(170px,1fr))"></div>
+
+    <div class="card span-8">
+      <div class="row"><h2>Anomaly score</h2><span class="spacer"></span><span class="hint" style="margin:0" id="ratioText">–</span></div>
+      <p class="hint">0 = like normal water · 1 = alarm line · alarms after 3 readings in a row above the line (fewer false alarms from bubbles)</p>
+      <div class="chart-box"><canvas id="cScore"></canvas></div>
+    </div>
+    <div class="card span-4">
+      <div class="row"><h2>Events</h2><span class="spacer"></span>
+        <button class="btn ghost sm" id="btnSound" title="Turn on alarm sound">Sound and notifications</button></div>
+      <p class="hint admin-only" style="margin:6px 0">Tested in monitoring mode and want to keep it for training? <button class="btn ghost sm" id="btnSaveLast">Save recent data as a run</button></p>
+      <ul class="events" id="events"></ul>
+    </div>
+
+    <div class="card span-12" id="likelyCard" hidden></div>
+
+    <div class="card span-12 admin-only" id="simCard" hidden>
+      <h2>Simulation</h2>
+      <p class="hint">No real board connected. Pick a scenario to see how the system detects and alerts</p>
+      <div class="chips" id="simChips"></div>
+    </div>
+  </div>
+
+  <!-- ---- recorded-data explorer (WP2) ---- -->
+  <div class="grid" id="exploreBox" hidden>
+    <div class="card span-12">
+      <div class="row"><h2>Choose runs to view</h2><span class="spacer"></span><span class="hint" style="margin:0" id="exCount"></span></div>
+      <p class="hint">Select several runs to overlay them (e.g. several normal sessions against salted water) · data files are never edited "Archive" only moves files to data/_excluded</p>
+      <div class="row" style="gap:8px"><select id="exLabel" style="width:auto"></select>
+        <input type="text" id="exSearch" placeholder="Search (run no., note, session)" style="width:210px">
+        <button class="btn ghost sm" id="exAllShown">Select shown</button><button class="btn ghost sm" id="exClear">Clear selection</button>
+        <span class="hint" style="margin:0" id="exStatus"></span></div>
+      <div class="table-wrap" style="margin-top:10px;max-height:300px"><table>
+        <thead><tr><th></th><th>Run</th><th>Condition</th><th>Time</th><th class="num">Rows</th><th>Water session</th><th>Note</th><th></th></tr></thead>
+        <tbody id="exBody"></tbody></table></div>
+      <details id="exArch" class="admin-only" hidden><summary>Archive data/_excluded (<span id="exArchN">0</span> files)</summary><ul class="events" id="exArchList" style="max-height:160px"></ul></details>
+    </div>
+    <div class="card span-12" id="exEmpty"><p class="hint" style="margin:0">Tick at least one run above to see its charts and per-sensor statistics</p></div>
+    <div class="card span-12" id="exOpts" hidden>
+      <div class="row" style="gap:14px">
+        <div><span class="hint" style="margin:0 6px 0 0">Layout</span><div class="seg" id="exMode"><button data-v="aligned">Aligned at start (t = 0)</button><button data-v="concat">End to end</button></div></div>
+        <div><span class="hint" style="margin:0 6px 0 0">Line</span><div class="seg" id="exSeries"><button data-v="raw">Raw</button><button data-v="median">Median filtered</button><button data-v="both">Both</button></div></div>
+        <div id="exNtuWrap"><span class="hint" style="margin:0 6px 0 0">Turbidity</span><div class="seg" id="exNtu"><button data-v="v">Volts</button><button data-v="ntu">NTU (estimate)</button></div></div>
+        <div><button class="chip" id="exScoreBtn">+ model score</button></div>
+      </div>
+    </div>
+    <div class="span-12 grid ex-grid" id="exCharts" hidden></div>
+    <div class="card span-12" id="exStatsCard" hidden>
+      <div class="row"><h2>Run statistics</h2><span class="spacer"></span><select id="exFocus" style="width:auto"></select>
+        <a class="btn ghost sm" id="exCsv" href="#" download style="text-decoration:none">Export CSV (all sensors)</a></div>
+      <p class="hint"><span id="exUnit"></span> · computed after trimming the start of normal runs · sensor read errors are not counted</p>
+      <div class="table-wrap"><table><thead id="exStatsHead"></thead><tbody id="exStatsBody"></tbody></table></div>
+      <details><summary>What the columns mean</summary><ul class="hint" style="line-height:1.8">
+        <li><b>Trend /min</b>: outlier-resistant slope (Theil–Sen); close to 0 for normal water</li>
+        <li><b>noise</b>: random jitter, measured from differences between consecutive readings (ignores slow drift); used to set the sensor floor</li>
+        <li><b>Settled after (s)</b>: seconds from the start of the run until the rolling mean stays within 1 floor of the final value · "not settled" = still drifting at the end of the run</li></ul></details>
+    </div>
+  </div>
+</section>
+
+<!-- ======================= RECORD ======================= -->
+<section class="view" id="v-record">
+  <div class="grid">
+    <div class="card span-6">
+      <h2>Record a run</h2>
+      <p class="hint">One run = one cup of water. Let the probe settle before you press Start · the first 60 s of each normal run are trimmed for training</p>
+      <div class="grid" style="grid-template-columns:1fr 1fr;gap:10px">
+        <div><label class="f">Run number</label><input type="number" id="recRun" min="1"></div>
+        <div><label class="f">Duration (min)</label><input type="number" id="recMin" value="5" min="0.5" step="0.5"></div>
+      </div>
+      <label class="f">Condition (label)</label>
+      <input type="text" id="recLabel" value="normal">
+      <div class="chips" id="labelChips"></div>
+      <label class="f">Note (which cup, what was added, how much)</label>
+      <input type="text" id="recNote" placeholder="e.g. cup A tap water, added 5 mL salt stock">
+      <label class="switch" style="font-weight:600;margin-top:10px"><input type="checkbox" id="recNew"><span class="track"></span>
+        <span>New water (starts a new session)</span></label>
+      <div id="recWarn"></div>
+      <div class="row" style="margin-top:14px">
+        <button class="btn" id="btnRec">● Start</button>
+        <button class="btn danger" id="btnRecStop" disabled>■ Stop</button>
+        <span class="hint" style="margin:0" id="recMsg"></span>
+      </div>
+      <div class="progress" style="margin-top:14px"><i id="recBar"></i></div>
+      <div id="markBox" class="mark-box" hidden>
+        <div class="row"><b>Mark events while recording</b><span class="hint" style="margin:0">For gradual additions: response time is measured from each addition</span></div>
+        <div class="chips" id="markChips">
+          <span class="chip" data-k="dose" data-t="Additive">Additive</span><span class="chip" data-k="stir" data-t="Stir">Stir</span>
+          <span class="chip" data-k="probe" data-t="Probe lifted or moved">Probe moved</span></div>
+        <div class="row" style="margin-top:8px">
+          <input type="text" id="markText" placeholder="Text, e.g. added salt stock" style="flex:2;min-width:160px">
+          <input type="number" id="markDose" placeholder="Amount (mL)" step="any" style="flex:1;min-width:110px">
+          <button class="btn sm" id="btnMark">Save</button></div>
+        <ul class="events" id="markList" style="max-height:140px;margin-top:6px"></ul>
+      </div>
+      <div class="kpis" style="margin-top:12px">
+        <div class="tile"><div class="k">Rows recorded</div><div class="v" id="recRows">0</div></div>
+        <div class="tile"><div class="k">Elapsed</div><div class="v" id="recTime">0<span class="u">s</span></div></div>
+      </div>
+    </div>
+    <div class="card span-6">
+      <h2>Suggested recording plan</h2>
+      <ol class="hint" style="font-size:14px;line-height:1.8">
+        <li><b>At least 3 sessions of normal water</b> (fresh water or different days), 5 runs or more in total. The more varied, the fewer false alarms</li>
+        <li>Use the same container, water level and probe position every run · <b>after changing the water, tick "New water"</b>. Runs in the same water count as one session</li>
+        <li>Anomaly runs, 3 min each: salt, baking soda, corn starch, hot water (and vinegar if you use pH)</li>
+        <li>You can train on normal runs alone, but a full model comparison needs anomaly runs</li>
+      </ol>
+      <div id="recPlan"></div>
+    </div>
+    <div class="card span-12">
+      <div class="row"><h2>Recorded runs</h2><span class="spacer"></span><span class="hint" style="margin:0" id="runsSummary"></span></div>
+      <div class="table-wrap" style="margin-top:10px"><table>
+        <thead><tr><th>Run</th><th>Condition</th><th>Time</th><th>Water session</th><th class="num">Rows</th><th class="num">Every</th><th>Source</th><th>Note</th><th></th></tr></thead>
+        <tbody id="runsBody"></tbody></table></div>
+    </div>
+  </div>
+</section>
+
+<!-- ======================= MODEL ======================= -->
+<section class="view" id="v-model">
+  <div class="grid">
+    <div class="card span-12 admin-only" id="trPicker"><p class="hint">Loading…</p></div>
+    <div class="card span-12" id="snapCard" hidden>
+      <h2>Trained models</h2>
+      <p class="hint">Every training is kept. Switch back to an earlier model instantly (e.g. 3 sensors vs 4) without retraining</p>
+      <div id="snapBody"></div>
+    </div>
+    <div class="span-12" id="modelResults"></div>
+    <div class="card span-12" id="cmpCard" hidden>
+      <div class="row"><div><h2>Compare two trainings</h2><p class="hint" style="margin:0">Pick two trainings from the history to see how changing data, sensors or models changed the result</p></div>
+        <span class="spacer"></span><select id="cmpA" style="width:auto;max-width:46%"></select><span class="hint" style="margin:0">Compare with</span><select id="cmpB" style="width:auto;max-width:46%"></select></div>
+      <div id="cmpBody" style="margin-top:10px"></div>
+    </div>
+    <div class="card span-12 admin-only" id="tuneCard" hidden>
+      <div class="row"><div><h2>Tune the detector</h2>
+        <p class="hint" style="margin:0">Try settings and preview the result before saving · numbers come from the same runs used for tuning, so they are slightly optimistic</p></div>
+        <span class="spacer"></span><select id="tuneModel" style="width:auto"></select></div>
+      <div class="chips" id="tunePresets" style="margin-top:10px"></div>
+      <div class="grid" style="grid-template-columns:repeat(auto-fit,minmax(300px,1fr));gap:16px;margin-top:6px">
+        <div>
+          <h3>Instant</h3>
+          <div id="tuneInstant"></div>
+          <h3>Needs recomputing (1–20 s)</h3>
+          <div class="grid" style="grid-template-columns:1fr 1fr;gap:8px" id="tuneRefit"></div>
+          <div class="row" style="margin-top:8px"><button class="btn ghost sm" id="btnSuggest">Suggest floors from data</button>
+            <span class="hint" style="margin:0" id="suggestMsg"></span></div>
+          <div class="row" style="margin-top:14px">
+            <button class="btn" id="btnTuneApply">Save and retrain</button>
+            <button class="btn ghost" id="btnTuneReset">Defaults</button>
+            <span class="hint" style="margin:0" id="tuneStatus"></span></div>
+        </div>
+        <div>
+          <h3>Expected result</h3>
+          <div class="table-wrap"><table><thead><tr><th>Metric</th><th class="num">Now</th><th class="num">Trial</th></tr></thead>
+            <tbody id="tuneCompare"></tbody></table></div>
+          <h3>Change needed to alarm (one sensor, others constant)</h3>
+          <div class="table-wrap"><table><thead><tr><th>Sensors</th><th class="num">Now</th><th class="num">Trial</th></tr></thead>
+            <tbody id="tuneLimits"></tbody></table></div>
+          <h3>Margin vs false alarms / detection</h3>
+          <div class="chart-box" style="height:200px"><canvas id="cSweep"></canvas></div>
+        </div>
+      </div>
+      <details style="margin-top:12px"><summary>Settings history</summary>
+        <div class="table-wrap" style="margin-top:8px"><table><thead><tr><th>Time</th><th>Recommended model</th><th class="num">MSPC false alarms</th><th class="num">MSPC detection</th><th>Key values</th><th></th></tr></thead>
+        <tbody id="tuneHistory"></tbody></table></div></details>
+    </div>
+  </div>
+</section>
+
+<!-- ======================= VIZ ======================= -->
+<section class="view" id="v-viz">
+  <div class="grid">
+    <div class="card span-12" id="vizEmpty"><h2>No training results yet</h2><p class="hint">Record data, then press Train on the "Train &amp; compare"</p></div>
+    <div class="card span-12 viz-on">
+      <div class="row"><h2>Score over time, per run</h2><span class="spacer"></span><select id="tlModel" style="width:auto"></select></div>
+      <p class="hint">Each colour is one run · dashed line = alarm line (1.0) · normal water should stay below it, abnormal water above</p>
+      <div class="chart-box tall"><canvas id="cTimeline"></canvas></div>
+    </div>
+    <div class="card span-6 viz-on">
+      <h2>ROC curve</h2>
+      <p class="hint">The closer to the top-left corner, the better · AUC = 1 perfect separation · 0.5 = random guess (independent of the alarm line)</p>
+      <div class="chart-box sq"><canvas id="cRoc"></canvas></div>
+    </div>
+    <div class="card span-6 viz-on">
+      <div class="row"><h2>Raw data, two sensors</h2><span class="spacer"></span>
+        <select id="scX" style="width:auto"></select><select id="scY" style="width:auto"></select></div>
+      <p class="hint">Ellipse = MSPC normal-water boundary (2-D approximation) · points outside it differ from normal water</p>
+      <div class="chart-box sq"><canvas id="cScatter"></canvas></div>
+    </div>
+    <div class="card span-12 viz-on">
+      <div class="row"><h2>One run at a time: how it changes over time</h2><span class="spacer"></span><select id="rdRun" style="width:auto"></select></div>
+      <p class="hint">Orange vertical line = recorded event (e.g. additive) · grey vertical line = detected change point · yellow band = early warning (drift)</p>
+      <div class="grid" style="grid-template-columns:1fr 1fr;gap:14px">
+        <div><h3>Which sensor makes it differ from normal water</h3><div class="chart-box"><canvas id="cContrib"></canvas></div>
+          <p class="legend-note">Share of z² per sensor (MSPC) over time · gaps = still within normal water</p></div>
+        <div><h3>Path of the water in PCA space</h3><div class="chart-box"><canvas id="cTraj"></canvas></div>
+          <p class="legend-note">Faint points = start of run, dark points = end · ellipse = normal-water boundary (approximate)</p></div>
+      </div>
+      <p class="hint" id="rdSummary" style="margin-top:10px"></p>
+    </div>
+    <div class="card span-12 viz-on">
+      <h2>Dose response: how much it takes to alarm</h2>
+      <p class="hint">Uses runs with recorded "Additive" events and amounts · x axis = cumulative dose · dashed line = alarm line · smallest detected dose is in the legend</p>
+      <div class="chart-box tall"><canvas id="cDose"></canvas></div>
+    </div>
+    <div class="card span-12 viz-on">
+      <div class="row"><h2>Embedding: PCA / t-SNE / UMAP</h2><span class="spacer"></span>
+        <div class="seg" id="embSeg"><button data-m="pca" class="on">PCA</button><button data-m="tsne">t-SNE</button><button data-m="umap">UMAP</button></div>
+        <div class="seg" id="embColor"><button data-c="label" class="on">Colour by condition</button><button data-c="alarm">Colour by alarm</button></div></div>
+      <p class="hint" id="embNote">Projects the multi-sensor data onto two dimensions to see whether water types form separate groups (qualitative, for explanation only, not a verdict)</p>
+      <div class="chart-box sq" style="height:440px"><canvas id="cEmbed"></canvas></div>
+    </div>
+  </div>
+</section>
+
+<!-- ======================= SETTINGS ======================= -->
+<section class="view" id="v-settings">
+  <div class="grid">
+    <div class="card span-6">
+      <h2>Connection</h2>
+      <label class="f">ESP32 port</label>
+      <div class="row"><select id="setPort" style="flex:1"></select><button class="btn ghost sm" id="btnPorts">Refresh</button></div>
+      <p class="hint">"Auto" finds a CP210x/CH340 board by itself · "SIM" = simulated data, no board</p>
+      <h3>Sensors</h3>
+      <label class="switch" style="font-weight:600"><input type="checkbox" id="setPh"><span class="track"></span><span>Use the pH sensor (retrain required)</span></label>
+      <label class="f">pH voltage divider ratio (10k/10k = 2.0, no divider = 1.0)</label>
+      <input type="number" id="setDiv" step="0.01" min="1">
+    </div>
+
+    <div class="card span-6">
+      <h2>Calibration</h2>
+      <p class="hint">Press each button while the probe is in the stated condition. The median of the last 10 s is used · calibration affects displayed values and models trained afterwards</p>
+      <h3>TDS</h3>
+      <div class="row"><button class="btn ghost sm" id="calAir">1) Probe dry in air → save offset</button><span class="hint" style="margin:0" id="calTdsInfo"></span></div>
+      <div class="row" style="margin-top:8px"><input type="number" id="calStd" placeholder="ppm of the standard solution" style="width:180px">
+        <button class="btn ghost sm" id="calStdBtn">2) Dip in the standard → compute K</button></div>
+      <h3>pH (two-point)</h3>
+      <div class="row"><input type="number" id="ph1" value="6.86" step="0.01" style="width:90px"><button class="btn ghost sm" data-slot="0">Dip in this buffer → save</button><span class="hint" style="margin:0" id="ph1Info"></span></div>
+      <div class="row" style="margin-top:8px"><input type="number" id="ph2" value="4.01" step="0.01" style="width:90px"><button class="btn ghost sm" data-slot="1">Dip in this buffer → save</button><span class="hint" style="margin:0" id="ph2Info"></span></div>
+      <p class="hint" style="margin-top:8px">Rinse the probe with distilled water before every buffer change</p>
+    </div>
+
+    <div class="card span-6">
+      <h2>Alerts</h2>
+      <div class="row"><button class="btn ghost sm" id="btnNotifPerm">Allow browser notifications</button><span class="hint" style="margin:0" id="notifState"></span></div>
+      <label class="switch" style="font-weight:600;margin-top:10px"><input type="checkbox" id="alSound"><span class="track"></span><span>Alarm sound in the page</span></label>
+      <h3>Phone: ntfy (simplest, no sign-up)</h3>
+      <p class="hint">Install the ntfy app → Subscribe to topic → enter the same topic name as this field (use a long, hard-to-guess name: anyone who knows it can read it)</p>
+      <div class="row"><input type="text" id="alNtfy" placeholder="e.g. water-sentinel-x7k2p9" style="flex:1"><button class="btn ghost sm" id="btnTopic">Random name</button></div>
+      <details><summary>Telegram / LINE</summary>
+        <label class="f">Telegram bot token</label><input type="password" id="alTgTok">
+        <label class="f">Telegram chat id</label><input type="text" id="alTgChat">
+        <label class="f">LINE Messaging API: channel access token</label><input type="password" id="alLineTok">
+        <label class="f">LINE: your user ID (Uxxxxxxxx)</label><input type="text" id="alLineUser">
+        <p class="hint">LINE Notify has shut down; use the LINE Messaging API instead</p>
+      </details>
+      <div class="row" style="margin-top:10px">
+        <label class="switch" style="font-weight:600"><input type="checkbox" id="alRecovery"><span class="track"></span><span>Notify when back to normal</span></label>
+        <label class="switch" style="font-weight:600"><input type="checkbox" id="alFault"><span class="track"></span><span>Notify on sensor problems</span></label>
+      </div>
+      <label class="switch" style="font-weight:600;margin-top:10px"><input type="checkbox" id="alCause"><span class="track"></span><span>Include "likely cause (experimental)" in alert messages</span></label>
+      <div class="row" style="margin-top:12px"><button class="btn ghost sm" id="btnTestAlert">Send test message</button><span class="hint" style="margin:0" id="testAlertMsg"></span></div>
+    </div>
+
+    <div class="card span-6">
+      <h2>Remote access from a phone</h2>
+      <p class="hint">Recommended <b>Tailscale</b> (free): install it on this computer and your phone, sign in to the same account, then open http://computer-IP:8000 from your phone anywhere. No router ports to open</p>
+      <label class="switch" style="font-weight:600"><input type="checkbox" id="rmOn"><span class="track"></span><span>Allow access from other devices (restart required)</span></label>
+      <label class="f">PIN for other devices (at least 6 characters)</label><input type="password" id="rmPin" inputmode="numeric">
+      <details><summary>ESP32 over Wi-Fi (future)</summary>
+        <p class="hint">An ESP32 on Wi-Fi can POST JSON to /api/ingest with an X-Token header instead of using a USB cable</p>
+        <label class="f">Ingest token</label><input type="password" id="rmToken">
+      </details>
+    </div>
+
+    <div class="card span-6" id="shareCard">
+      <h2>Viewer link for presentations</h2>
+      <div id="shareBox"><p class="hint">Loading…</p></div>
+    </div>
+
+    <div class="card span-12" id="turbCard">
+      <h2>Turbidity (NTU)</h2>
+      <div id="turbBox"><p class="hint">Loading…</p></div>
+    </div>
+
+    <div class="card span-12">
+      <details><summary>Advanced detector settings (retrain after changing)</summary>
+        <div class="grid" style="grid-template-columns:repeat(auto-fit,minmax(170px,1fr));gap:10px;margin-top:8px" id="advGrid"></div>
+        <label class="switch" style="font-weight:600;margin-top:10px"><input type="checkbox" id="autoSnap"><span class="track"></span>
+          <span>Save alarm periods automatically (2 min before to 5 min after)</span></label>
+      </details>
+      <div class="row" style="margin-top:14px"><button class="btn" id="btnSave">Save settings</button>
+        <button class="btn ghost" id="btnTheme">Switch light/dark theme</button><span class="hint" style="margin:0" id="saveMsg"></span></div>
+    </div>
+  </div>
+</section>
+</main>
+<div class="qr-overlay" id="qrOverlay" hidden><div class="qr-card"><button class="btn ghost sm" id="qrClose" style="align-self:flex-end">Close ✕</button><div id="qrBox"></div></div></div>
+<div class="toast" id="toast"></div>
+<script src="/static/vendor/qrcode.js"></script>
+<script src="/static/share.js"></script>
+<script src="/static/turbidity.js"></script>
+<script src="/static/explorer.js"></script>
+<script src="/static/training.js"></script>
+<script src="/static/app.js"></script>
+</body>
+</html>

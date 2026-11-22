@@ -1,5 +1,25 @@
 # Changelog
 
+## 1.2.0: English, redesign, project foundations (2026-11-22)
+
+- **English everywhere.** Web UI, public dashboard, backend messages, CLI and docs (913 strings). Dates use en-GB, 24-hour.
+  Reports and run notes saved before this change keep their original text until retrained or edited.
+- **Redesign** (docs/DESIGN.md): design tokens with pH-buffer status colours, self-hosted Atkinson Hyperlegible and
+  Barlow Condensed, the anomaly score as a graduated cylinder, sensor readouts as one instrument strip, light and dark themes,
+  no emoji in UI chrome. Public dashboard and PIN page share the identity. Charts read colours from tokens.
+- **Foundations for growth:** `pyproject.toml` (deps, pytest, ruff), GitHub Actions CI on Windows and Ubuntu,
+  `tests/test_frontend.py` (token sync, no hard-coded colours, English-only UI, valid asset paths), `AGENTS.md`
+  for AI coding assistants, `.editorconfig`, `.gitattributes`.
+- **Restructure** (no behaviour change): `sentinel/` split into `acquisition/`, `storage/`, `detection/`, `edge/`, `app/`;
+  `web/` → `frontend/app/`, `dashboard/` → `frontend/dashboard/`; everything the app writes lives in `runtime/`;
+  helper scripts in `scripts/`. Old model bundles still load.
+
+## 2026-11-21: folder restructure (no behaviour change, all 17 tests pass)
+- `sentinel/` split by role: `acquisition/`, `storage/`, `detection/`, `edge/`, `app/`; `edge.py` -> `edge/export.py`, `edge_sim.py` -> `edge/simulator.py`
+- `web/` -> `frontend/app/`, `dashboard/` -> `frontend/dashboard/`
+- Everything the app writes (`data/`, `model/`, `logs/`, `config.json`, `edge_secrets.json`) -> `runtime/` (`config.HOME` default)
+- `start_sim.bat`, `autostart.bat` -> `scripts/`; old `firmware/backup_v2_single_model/` -> `_archive/`
+
 - edge-sim: fake water is now centred on the trained model (`--raw` keeps the old fixed values), so "normal" no longer scores as an anomaly when the model was trained on real water.
 
 ## 1.1.0 (in progress)
@@ -24,20 +44,20 @@
 ### WP5: turbidity in NTU (display only; models stay on volts)
 - `turbidity.py`: ratio method r = V (temperature-corrected) / V_clear, because this module reads ~1.85 V in clear
   water at 3.3 V, so absolute 5 V datasheet curves do not transfer. Curves: DFRobot-style, vendor-style
-  (both labelled "ประมาณ / estimate"), and the user's own standards (PCHIP, no extrapolation).
+  (both labelled "estimate"), and the user's own standards (PCHIP, no extrapolation).
 - Detection limit from the measured noise: below it the tile says `< N NTU` instead of a made-up number.
   States: no reference, below limit, ok, over range, off, error.
 - Settings card: set clear water, choose curve, add standards (reads the volts now), delete points, temperature
   coefficient suggestion fitted from the user's own sessions (never applied silently), live curve chart.
 - Tiles and the explorer show NTU (volts on hover / toggle); the sparkline, fingerprint and models are untouched.
 
-### WP2: recorded-data explorer (Overview -> "ข้อมูลที่บันทึกไว้")
+### WP2: recorded-data explorer (Overview -> "Recorded")
 - Pick up to 8 runs, overlay aligned at t = 0 or concatenated, raw / median / both, NTU or volts, optional score
   replay with the active model (flagged when the run was in the training set).
 - Per-run characteristics: mean, SD, min, max, robust slope per minute (Theil-Sen), white-noise estimate (MAD of
   differences), settling time. Warm-up and sensor-fault spans and dose markers are drawn on the charts.
 - Exports: PNG per chart, CSV of the characteristics (`/api/runs/export.csv`).
-- Run management never deletes: "ย้ายเก็บ" moves CSV + sidecar to `data/_excluded/` and can be restored.
+- Run management never deletes: "Archive" moves CSV + sidecar to `data/_excluded/` and can be restored.
 
 ### WP4b: choose what trains the model
 - Per-run roles **train / test-only / anomaly / exclude**. Test-only normal runs are never fitted; every model is
