@@ -134,7 +134,7 @@ def sample_interval(ms):
 
 def prepare_run(raw, cfg, use_ph, calib=None, divider=None, warmup=True, sensors=None):
     """Raw CSV rows -> clean, median-filtered feature rows, fault counts and the sample interval (s)."""
-    from .models import timing   # local import: models does not depend on features
+    from ..detection.models import timing   # local import: models does not depend on features
 
     det = cfg["detector"]
     feats = feature_list(use_ph, sensors)

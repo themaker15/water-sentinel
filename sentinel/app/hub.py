@@ -10,17 +10,21 @@ from collections import deque
 
 import numpy as np
 
-from . import alerts, explorer, turbidity
-from .config import DATA_DIR, DEFAULT_CONFIG, LOG_DIR, MODEL_DIR, deep_merge, load_config, save_config
-from .datasets import (delete_dataset, load_datasets, normalize_selection, save_dataset, selection_from_cfg,
+from . import alerts
+
+from ..storage import explorer
+
+from ..acquisition import turbidity
+from ..config import DATA_DIR, DEFAULT_CONFIG, LOG_DIR, MODEL_DIR, deep_merge, load_config, save_config
+from ..storage.datasets import (delete_dataset, load_datasets, normalize_selection, save_dataset, selection_from_cfg,
                        selection_use_ph)
-from .features import derive_one, ph_value, tds_ppm
-from .live import LiveMonitor
-from .models import MODEL_NAMES
-from .runs import UNLABELED, list_runs, load_meta, save_meta
-from .sources import SourceThread, Simulator
-from . import tuning
-from .training import (TrainError, check_selection, data_fingerprint, embedding, list_snapshots, load_bundle,
+from ..acquisition.features import derive_one, ph_value, tds_ppm
+from ..detection.live import LiveMonitor
+from ..detection.models import MODEL_NAMES
+from ..storage.runs import UNLABELED, list_runs, load_meta, save_meta
+from ..acquisition.sources import SourceThread, Simulator
+from ..detection import tuning
+from ..detection.training import (TrainError, check_selection, data_fingerprint, embedding, list_snapshots, load_bundle,
                        restore_snapshot, train)
 
 SECRET_KEYS = {("alerts", "telegram_token"), ("alerts", "line_token"), ("remote", "pin"), ("ingest_token",)}

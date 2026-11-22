@@ -16,10 +16,10 @@ import threading
 
 import numpy as np
 
-from .config import DATA_DIR, DEFAULT_CONFIG, deep_merge
-from .datasets import selection_from_cfg, selection_use_ph
+from ..config import DATA_DIR, DEFAULT_CONFIG, deep_merge
+from ..storage.datasets import selection_from_cfg, selection_use_ph
 from .drift import calibrate_h, drift_flags
-from .features import feature_list
+from ..acquisition.features import feature_list
 from .models import MODELS, MSPC, alarms, ewma, timing
 from .training import TrainError, _selected_files, detection_limits, load_runs, rising_edges, split_runs
 

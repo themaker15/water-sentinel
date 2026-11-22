@@ -15,8 +15,8 @@ import re
 
 import numpy as np
 
-from .config import DATA_DIR
-from .features import NAME_RE
+from ..config import DATA_DIR
+from ..acquisition.features import NAME_RE
 
 LABEL_RE = re.compile(r"[A-Za-z0-9_\-]+")
 UNLABELED = "unlabeled"

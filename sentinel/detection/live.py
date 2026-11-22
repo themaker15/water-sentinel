@@ -5,7 +5,7 @@ import numpy as np
 
 from . import causes
 from .drift import DriftTracker
-from .features import FAULTS, SENSORS, derive_one, fault_one
+from ..acquisition.features import FAULTS, SENSORS, derive_one, fault_one
 from .models import MODEL_NAMES, timing
 from .training import explain
 

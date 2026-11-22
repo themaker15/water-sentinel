@@ -10,10 +10,10 @@ import shutil
 import numpy as np
 import pandas as pd
 
-from . import turbidity
-from .drift import change_points, theil_sen
-from .features import FAULTS, SENSORS, derive, fault_codes, prepare_run, read_run, sample_interval
-from .models import alarms, normalized, timing
+from ..acquisition import turbidity
+from ..detection.drift import change_points, theil_sen
+from ..acquisition.features import FAULTS, SENSORS, derive, fault_codes, prepare_run, read_run, sample_interval
+from ..detection.models import alarms, normalized, timing
 from .runs import load_meta
 
 MAX_POINTS = 1200

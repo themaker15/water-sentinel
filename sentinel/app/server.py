@@ -25,12 +25,12 @@ from fastapi import Body, FastAPI, Request
 from fastapi.responses import FileResponse, HTMLResponse, JSONResponse, PlainTextResponse, RedirectResponse
 from fastapi.staticfiles import StaticFiles
 
-from . import __version__
-from .config import MODEL_DIR, WEB_DIR
-from .datasets import dataset_selection
+from .. import __version__
+from ..config import MODEL_DIR, WEB_DIR
+from ..storage.datasets import dataset_selection
 from .share import Tunnel
-from .sources import list_ports
-from .training import TrainError
+from ..acquisition.sources import list_ports
+from ..detection.training import TrainError
 
 LOCAL_CLIENTS = {"127.0.0.1", "::1", "testclient"}
 LOCAL_HOSTS = {"127.0.0.1", "localhost", "::1", "testserver"}
@@ -337,7 +337,7 @@ def create_app(hub):
 
     @app.get("/api/tune/meta")
     def tune_meta():
-        from .tuning import PRESETS, load_history
+        from ..detection.tuning import PRESETS, load_history
         return {"ok": True, "presets": PRESETS, "history": load_history(MODEL_DIR)}
 
     @app.post("/api/tune/apply")

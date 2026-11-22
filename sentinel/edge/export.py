@@ -9,7 +9,7 @@ C firmware will use, so "the laptop simulation behaves like the board" can be te
 import json
 import math
 
-from .config import MODEL_DIR
+from ..config import MODEL_DIR
 
 EDGE_FILE = "edge_model.json"
 STATUS_CODE = {"starting": 0, "normal": 1, "anomaly": 2, "fault": 3}

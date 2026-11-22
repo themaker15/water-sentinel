@@ -14,20 +14,20 @@ import sys
 import numpy as np
 
 from .config import deep_merge, load_config
-from .datasets import dataset_selection
-from .features import prepare_run, read_run
-from .models import MODEL_NAMES, alarms, normalized
-from .training import TrainError, _pct, explain, load_bundle, train
+from .storage.datasets import dataset_selection
+from .acquisition.features import prepare_run, read_run
+from .detection.models import MODEL_NAMES, alarms, normalized
+from .detection.training import TrainError, _pct, explain, load_bundle, train
 
 
 def main(args):
     cfg = load_config()
     if args and args[0] == "edge-sim":
-        from . import edge_sim
+        from .edge import simulator as edge_sim
         return edge_sim.main(args[1:])
     if args and args[0] == "export-edge":
         from .config import MODEL_DIR
-        from .edge import export_model, save_model, to_c_header
+        from .edge.export import export_model, save_model, to_c_header
         bundle = load_bundle()
         if not bundle:
             print("No trained model yet.")

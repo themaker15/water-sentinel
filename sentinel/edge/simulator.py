@@ -19,9 +19,9 @@ import time
 import urllib.parse
 import urllib.request
 
-from .config import HOME, MODEL_DIR
-from .edge import EDGE_FILE, STATUS_CODE, EdgeDetector, export_model, save_model, tds_ppm
-from .sources import Simulator
+from ..config import HOME, MODEL_DIR
+from .export import EDGE_FILE, STATUS_CODE, EdgeDetector, export_model, save_model, tds_ppm
+from ..acquisition.sources import Simulator
 
 SECRETS = HOME / "edge_secrets.json"
 TS_URL = "https://api.thingspeak.com/update"
@@ -38,7 +38,7 @@ def load_secrets():
 
 def load_edge():
     """Always export from the current trained model, so the simulator never runs a stale copy."""
-    from .training import load_bundle
+    from ..detection.training import load_bundle
     bundle = load_bundle()
     if not bundle:
         p = MODEL_DIR / EDGE_FILE

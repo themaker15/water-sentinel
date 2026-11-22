@@ -14,7 +14,7 @@ import re
 
 import numpy as np
 
-from .features import SENSORS
+from ..acquisition.features import SENSORS
 
 OPEN_SET = 0.80       # below this the pattern matches nothing we know
 AMBIGUOUS = 0.05      # top two closer than this -> cannot tell them apart

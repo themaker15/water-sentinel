@@ -5,7 +5,7 @@ No server, no build step. It contains only the channel's **Read** API key (read-
 
 ## Deploy on Netlify (2 minutes)
 1. Open https://app.netlify.com/drop (sign in with Google/GitHub).
-2. Drag this whole `dashboard` folder onto the page.
+2. Drag this whole `frontend/dashboard` folder onto the page.
 3. Netlify gives you a link like `https://random-name.netlify.app`. Open it on your phone. Done.
    (Site settings -> Change site name to get a nicer address.)
 

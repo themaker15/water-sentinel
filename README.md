@@ -11,7 +11,7 @@ Course project: 2306565 Digital Lab, Chemical Engineering, Chulalongkorn Univers
 1. ติดตั้ง Python 3.11+ (ติ๊ก *Add to PATH*)
 2. อัปโหลด `firmware/water_sentinel/water_sentinel.ino` ลง ESP32 (Arduino IDE, ไลบรารี OneWire + DallasTemperature)
 3. ดับเบิลคลิก **`start.bat`** ครั้งแรกจะติดตั้งไลบรารีให้เอง แล้วเปิดเบราว์เซอร์ที่ http://127.0.0.1:8000
-4. ไม่มีบอร์ด? ดับเบิลคลิก **`start_sim.bat`** เพื่อลองทุกอย่างด้วยข้อมูลจำลอง
+4. ไม่มีบอร์ด? ดับเบิลคลิก **`scripts/start_sim.bat`** เพื่อลองทุกอย่างด้วยข้อมูลจำลอง
 
 > ปิด Arduino Serial Monitor ก่อนเสมอ เพราะพอร์ต USB ใช้ได้ทีละโปรแกรม
 
@@ -27,10 +27,10 @@ Course project: 2306565 Digital Lab, Chemical Engineering, Chulalongkorn Univers
 
 **session = น้ำหนึ่งชุด**: รอบที่เก็บต่อกันโดยไม่เปลี่ยนน้ำนับเป็น session เดียว (ติ๊ก "เปลี่ยนน้ำใหม่แล้ว" ทุกครั้งที่เปลี่ยนน้ำ) ระบบประเมินโดยกันทั้ง session ออก จึงต้องมีน้ำปกติอย่างน้อย 3 session
 
-ข้อมูลสดทุกค่าถูกเก็บใน `logs/stream-*.csv` และทุกครั้งที่เตือน ระบบบันทึกช่วงนั้นเป็นรอบ `unlabeled` ให้เอง ไปตั้งชื่อที่แท็บเก็บข้อมูลแล้วใช้เทรนได้
+ข้อมูลสดทุกค่าถูกเก็บใน `runtime/logs/stream-*.csv` และทุกครั้งที่เตือน ระบบบันทึกช่วงนั้นเป็นรอบ `unlabeled` ให้เอง ไปตั้งชื่อที่แท็บเก็บข้อมูลแล้วใช้เทรนได้
 
 เทรนครั้งเดียวแล้วเปิดเฝ้าระวังทิ้งไว้ได้ โปรแกรมจำสถานะไว้ เปิดใหม่ก็กลับมาเฝ้าระวังต่อเอง
-`autostart.bat` ตั้งให้เปิดเองตอนเข้า Windows
+`scripts/autostart.bat` ตั้งให้เปิดเองตอนเข้า Windows
 
 ## ความขุ่นเป็น NTU
 
@@ -93,21 +93,21 @@ firmware is ready, `py -m sentinel edge-sim` pretends to be the board on this la
 against the app).
 
 1. ThingSpeak: create a channel with 8 fields (temp, TDS, turbidity V, pH, score, status, driver, driver z).
-2. Copy `edge_secrets.example.json` to `edge_secrets.json` and paste the Write API key and an ntfy topic.
+2. Copy `runtime/edge_secrets.example.json` to `runtime/edge_secrets.json` and paste the Write API key and an ntfy topic.
 3. `py -m sentinel edge-sim` (type `salt`, `starch`, `normal` + Enter to change the water), or
    `py -m sentinel edge-sim --script normal:120,salt:90,normal:120`. `--dry-run` sends nothing.
 
-`py -m sentinel export-edge` writes `model/edge_model.json` and `model/edge_model.h` for the firmware.
+`py -m sentinel export-edge` writes `runtime/model/edge_model.json` and `runtime/model/edge_model.h` for the firmware.
 
 ## Command line
 
 ```
 py run.py --sim                 เปิดแบบจำลอง
-py -m sentinel train            เทรน + เปรียบเทียบโมเดลจาก data/
+py -m sentinel train            เทรน + เปรียบเทียบโมเดลจาก runtime/data/
 py -m sentinel train --ph       เทรนแบบ 4 เซนเซอร์
-py -m sentinel train --dataset NAME   เทรนจากชุดข้อมูลที่บันทึกไว้ (data/datasets.json)
+py -m sentinel train --dataset NAME   เทรนจากชุดข้อมูลที่บันทึกไว้ (runtime/data/datasets.json)
 py -m sentinel edge-sim         ESP32 simulator → ThingSpeak + ntfy
-py -m sentinel test data\run006_salt_lvl1_....csv
+py -m sentinel test runtime\data\run006_salt_lvl1_....csv
 py -m pytest -q                 ทดสอบทั้งระบบด้วยตัวจำลอง
 ```
 API docs อัตโนมัติ: http://127.0.0.1:8000/docs
@@ -115,25 +115,45 @@ API docs อัตโนมัติ: http://127.0.0.1:8000/docs
 ## โครงสร้าง
 
 ```
-run.py                 จุดเริ่มโปรแกรม
-sentinel/
-  config.py            ค่าตั้งต้นทั้งหมด (ค่าจริงอยู่ใน config.json)
-  features.py          แปลงแรงดันเป็นค่าที่ใช้ (TDS ppm, pH), ตรวจเซนเซอร์เสีย
-  models.py            5 โมเดล + ขั้นตอนให้คะแนน/เส้นเตือน
-  training.py          เทรน, ประเมิน, embedding (PCA/t-SNE/UMAP)
-  live.py              ให้คะแนนทีละค่าแบบเรียลไทม์
-  sources.py           USB serial, ตัวจำลอง
-  hub.py               สถานะกลาง, บันทึกข้อมูล, เหตุการณ์, แจ้งเตือน
-  turbidity.py         แรงดันความขุ่น → NTU (ประมาณ/คาลิเบรตเอง), ลิมิตการตรวจวัด
-  causes.py            สาเหตุที่เป็นไปได้ (กฎ + nearest-centroid + unknown)
-  datasets.py          role ของแต่ละรอบ, ชุดข้อมูลที่ตั้งชื่อ
-  explorer.py          รายละเอียดรอบที่บันทึก, ค่าลักษณะ, ย้ายเก็บ/นำกลับ
-  share.py             ลิงก์สาธารณะสำหรับคนดู (cloudflared quick tunnel)
-  alerts.py            ntfy / Telegram / LINE
-  server.py            FastAPI + ความปลอดภัย
-web/                   หน้าเว็บ (HTML/CSS/JS + Chart.js)
-firmware/              โค้ด ESP32
-docs/ARCHITECTURE.md   สถาปัตยกรรมและแนวทางต่อยอด
-tests/                 ทดสอบ end-to-end
-data/ model/ logs/     ข้อมูลส่วนตัว (ไม่ขึ้น git)
+02_software/
+├── start.bat              ดับเบิลคลิกเพื่อเปิดโปรแกรม (จุดเริ่มเดียวที่ต้องจำ)
+├── run.py                 จุดเริ่มโปรแกรม (start.bat เรียกตัวนี้)
+├── requirements.txt       ไลบรารี Python
+├── README.md  CHANGELOG.md
+│
+├── sentinel/              Backend (Python package) แยกตามหน้าที่
+│   ├── config.py          ค่าตั้งต้นทั้งหมด + ที่อยู่โฟลเดอร์ (ค่าจริงอยู่ใน runtime/config.json)
+│   ├── __main__.py        คำสั่ง `py -m sentinel ...` (train, test, edge-sim, export-edge)
+│   ├── acquisition/       อ่านเซนเซอร์
+│   │   ├── sources.py       USB serial, ตัวจำลอง
+│   │   ├── features.py      แรงดัน → ค่าที่ใช้ (TDS ppm, pH), ตรวจเซนเซอร์เสีย
+│   │   └── turbidity.py     แรงดันความขุ่น → NTU, ลิมิตการตรวจวัด
+│   ├── storage/           ข้อมูลที่บันทึกไว้
+│   │   ├── runs.py          ไฟล์รอบ + metadata, session
+│   │   ├── datasets.py      role ของแต่ละรอบ, ชุดข้อมูลที่ตั้งชื่อ
+│   │   └── explorer.py      รายละเอียดรอบ, ค่าลักษณะ, ย้ายเก็บ/นำกลับ
+│   ├── detection/         ตรวจจับความผิดปกติ
+│   │   ├── models.py        5 โมเดล + ให้คะแนน/เส้นเตือน
+│   │   ├── training.py      เทรน, ประเมิน, embedding (PCA/t-SNE/UMAP)
+│   │   ├── tuning.py        ปรับ hyperparameter, what-if
+│   │   ├── drift.py         CUSUM, Theil-Sen, change point
+│   │   ├── causes.py        สาเหตุที่เป็นไปได้ (ทดลอง)
+│   │   └── live.py          ให้คะแนนแบบเรียลไทม์
+│   ├── edge/              MSPC บน ESP32
+│   │   ├── export.py        ส่งออกโมเดลเป็น JSON + C header
+│   │   └── simulator.py     จำลองบอร์ด → ThingSpeak + ntfy
+│   └── app/               โปรแกรมที่รันอยู่
+│       ├── hub.py           สถานะกลาง, บันทึกข้อมูล, เหตุการณ์
+│       ├── server.py        FastAPI + ความปลอดภัย
+│       ├── alerts.py        ntfy / Telegram / LINE
+│       └── share.py         ลิงก์สาธารณะ (cloudflared)
+│
+├── frontend/
+│   ├── app/               หน้าเว็บบนคอม (HTML/CSS/JS + Chart.js)
+│   └── dashboard/         หน้าเว็บสาธารณะบน Netlify (อ่าน ThingSpeak)
+├── firmware/              โค้ด ESP32 (Arduino sketch)
+├── tests/                 ทดสอบ end-to-end (`py -m pytest -q`)
+├── docs/                  ARCHITECTURE.md, แผนงาน
+├── scripts/               start_sim.bat, autostart.bat
+└── runtime/               ข้อมูลที่โปรแกรมเขียน (ไม่ขึ้น git): config.json, edge_secrets.json, data/, model/, logs/
 ```

@@ -8,12 +8,12 @@ import numpy as np
 import pandas as pd
 
 from . import causes
-from .config import DATA_DIR, MODEL_DIR
-from .datasets import normalize_selection, role_of, selection_use_ph
-from .features import SENSORS, feature_list, prepare_run, read_run
+from ..config import DATA_DIR, MODEL_DIR
+from ..storage.datasets import normalize_selection, role_of, selection_use_ph
+from ..acquisition.features import SENSORS, feature_list, prepare_run, read_run
 from .drift import H_MIN, K_DEFAULT, calibrate_h, change_points, drift_flags
 from .models import MODELS, MODEL_NAMES, MSPC, alarms, fit_calibrated, normalized
-from .runs import UNLABELED, list_runs
+from ..storage.runs import UNLABELED, list_runs
 
 
 class TrainError(Exception):

@@ -5,9 +5,10 @@ import pathlib
 
 
 ROOT = pathlib.Path(__file__).resolve().parent.parent   # repository root (code)
-WEB_DIR = ROOT / "web"
-# where data/, model/, logs/ and config.json live; tests point this at a temp folder
-HOME = pathlib.Path(os.environ.get("SENTINEL_HOME", ROOT))
+WEB_DIR = ROOT / "frontend" / "app"                      # the laptop web UI served by app/server.py
+# runtime/ holds everything the app writes: data/, model/, logs/, config.json, edge_secrets.json.
+# It is git-ignored. Tests point SENTINEL_HOME at a temp folder instead.
+HOME = pathlib.Path(os.environ.get("SENTINEL_HOME", ROOT / "runtime"))
 DATA_DIR = HOME / "data"
 MODEL_DIR = HOME / "model"
 LOG_DIR = HOME / "logs"

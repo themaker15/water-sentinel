@@ -1,16 +1,12 @@
-# personal / generated - never commit
-config.json
-config.tmp
-data/*
-!data/.gitkeep
-model/*
-!model/.gitkeep
-logs/
+# runtime/ = everything the app writes (data, models, logs, config, keys): personal, never commit
+runtime/*
+!runtime/edge_secrets.example.json
+
+# Python
 __pycache__/
 *.pyc
 .pytest_cache/
 .venv/
 
-# ESP32 / edge-sim keys (Wi-Fi, ThingSpeak, ntfy)
-edge_secrets.json
+# ESP32 Wi-Fi / ThingSpeak / ntfy keys
 firmware/**/secrets.h

@@ -213,7 +213,7 @@ def fit_temp_coeff(data_dir, warmup_s=60, min_sessions=3, min_span_c=1.0, sessio
     """
     import pandas as pd
     from .features import read_run
-    from .runs import list_runs
+    from ..storage.runs import list_runs
 
     per = {}
     for r in list_runs(data_dir, session_gap_min):

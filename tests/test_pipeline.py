@@ -4,9 +4,9 @@ import time
 import pytest
 from fastapi.testclient import TestClient
 
-from sentinel.hub import Hub
-from sentinel.server import create_app
-from sentinel.sources import parse_data_line
+from sentinel.app.hub import Hub
+from sentinel.app.server import create_app
+from sentinel.acquisition.sources import parse_data_line
 
 
 def test_parse_both_firmware_formats():
@@ -114,7 +114,7 @@ def test_security(client):
 
 
 def test_timing_is_in_seconds():
-    from sentinel.models import timing
+    from sentinel.detection.models import timing
     det = {"median_s": 5, "persist_s": 3, "ewma_lambda": 0.3}
     assert timing(det, 1.0)["median_win"] == 5 and timing(det, 1.0)["persist"] == 3
     legacy = timing(det, 2.34)
@@ -124,7 +124,7 @@ def test_timing_is_in_seconds():
 
 def test_legacy_and_new_firmware_alarm_at_similar_times(client):
     """The same step change must alarm after about the same number of seconds at 1 s and 2.34 s sampling."""
-    from sentinel.live import LiveMonitor
+    from sentinel.detection.live import LiveMonitor
     hub = client.hub
     assert wait(lambda: hub.bundle is not None, 60)
     base = {"temp_c": 27.2, "tds_v": 0.40, "turb_v": 2.0, "ph_pin_v": 1.4}
@@ -230,8 +230,8 @@ def _turb(c):
 def test_turbidity_ntu_is_display_only(client):
     """WP5: reference only -> "< X NTU" (no fake number); user standards -> matching NTU; the model, its
     fingerprint and every score stay in volts whether NTU display is on or off."""
-    from sentinel import turbidity
-    from sentinel.training import data_fingerprint
+    from sentinel.acquisition import turbidity
+    from sentinel.detection.training import data_fingerprint
     c, hub = client, client.hub
     c.post("/api/sim", json={"scenario": "normal"})
     time.sleep(0.5)
@@ -273,7 +273,7 @@ def test_turbidity_ntu_is_display_only(client):
 
 
 def test_turbidity_curve_unit():
-    from sentinel import turbidity
+    from sentinel.acquisition import turbidity
     from sentinel.config import DEFAULT_CONFIG
     import copy
     cal = copy.deepcopy(DEFAULT_CONFIG["turbidity"])
@@ -289,7 +289,7 @@ def test_turbidity_curve_unit():
 def test_causes_rules_unseen_and_live(client):
     """WP6: simulator scenarios map to the right family, an unseen pattern is "unknown"."""
     import numpy as np
-    from sentinel import causes
+    from sentinel.detection import causes
     f3, f4 = ["temp_c", "tds_ppm", "turb_v"], ["temp_c", "tds_ppm", "turb_v", "ph"]
     top = lambda z, f: causes.infer(np.array(z, float), f)
     assert top([0.3, 25, 0.2], f3)["candidates"][0]["family"] == "dissolved_salts"
@@ -356,7 +356,7 @@ def test_run_explorer_and_management(client):
     for i in range(130):
         lines.append(f",{i * 1000},901,drifttest,{27 + rng.normal(0, 0.05):.4f},{0.40 + 0.001 * i:.4f},2.0,nan")
     (DATA_DIR / name).write_text("\n".join(lines) + "\n", encoding="utf-8")
-    from sentinel.features import tds_ppm
+    from sentinel.acquisition.features import tds_ppm
     exp = float((tds_ppm(0.40 + 0.001 * 129, 27, 0.142, 1.0) - tds_ppm(0.40, 27, 0.142, 1.0)) / 129 * 60)
     st = c.get(f"/api/run/{name}").json()["stats"]
     assert abs(st["tds_ppm"]["slope_per_min"] - exp) / exp < 0.05, (st["tds_ppm"], exp)
@@ -449,7 +449,7 @@ def test_training_selection_roles_sensors_models_datasets(client):
 
 def test_cause_ambiguous_lists_every_tied_candidate():
     """Without pH, salt / baking soda / vinegar all just raise TDS: the headline must name all of them."""
-    from sentinel import causes
+    from sentinel.detection import causes
     feats = ["temp_c", "tds_ppm", "turb_v"]
     up = [0.0, 1.0, 0.0]
     model = {"features": feats, "centroids": {"salt": up, "baking_soda": up, "vinegar": up}}
@@ -508,10 +508,10 @@ def test_viewer_mode_tunnel_is_not_local(client):
 
 def test_edge_detector_matches_live_scorer(client):
     """The plain-maths detector the ESP32 firmware copies must give the same scores and alarms as the app."""
-    from sentinel.edge import EdgeDetector, export_model, to_c_header
-    from sentinel.live import LiveMonitor as LiveScorer
-    from sentinel.sources import Simulator
-    from sentinel.training import load_bundle
+    from sentinel.edge.export import EdgeDetector, export_model, to_c_header
+    from sentinel.detection.live import LiveMonitor as LiveScorer
+    from sentinel.acquisition.sources import Simulator
+    from sentinel.detection.training import load_bundle
     bundle = load_bundle()
     edge = export_model(bundle)
     import json as _json
@@ -538,10 +538,10 @@ def test_edge_detector_matches_live_scorer(client):
 def test_edge_sim_matches_model_baseline(client):
     """The fake board must read 'normal' for whatever water the model was trained on, and still alarm on salt."""
     import copy
-    from sentinel.edge import EdgeDetector, export_model
-    from sentinel.edge_sim import match_model
-    from sentinel.sources import Simulator
-    from sentinel.training import load_bundle
+    from sentinel.edge.export import EdgeDetector, export_model
+    from sentinel.edge.simulator import match_model
+    from sentinel.acquisition.sources import Simulator
+    from sentinel.detection.training import load_bundle
     edge = copy.deepcopy(export_model(load_bundle()))
     f = edge["features"]
     # pretend the model was trained on different water (cooler, much lower TDS, clearer)

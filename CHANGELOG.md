@@ -1,5 +1,11 @@
 # Changelog
 
+## 2026-11-21: folder restructure (no behaviour change, all 17 tests pass)
+- `sentinel/` split by role: `acquisition/`, `storage/`, `detection/`, `edge/`, `app/`; `edge.py` -> `edge/export.py`, `edge_sim.py` -> `edge/simulator.py`
+- `web/` -> `frontend/app/`, `dashboard/` -> `frontend/dashboard/`
+- Everything the app writes (`data/`, `model/`, `logs/`, `config.json`, `edge_secrets.json`) -> `runtime/` (`config.HOME` default)
+- `start_sim.bat`, `autostart.bat` -> `scripts/`; old `firmware/backup_v2_single_model/` -> `_archive/`
+
 - edge-sim: fake water is now centred on the trained model (`--raw` keeps the old fixed values), so "normal" no longer scores as an anomaly when the model was trained on real water.
 
 ## 1.1.0 (in progress)

@@ -48,8 +48,8 @@ def main():
             webbrowser.open(url)
             return
 
-    from sentinel.hub import Hub
-    from sentinel.server import create_app
+    from sentinel.app.hub import Hub
+    from sentinel.app.server import create_app
 
     hub = Hub(sim=args.sim, sim_speed=args.sim_speed)
     hub.start()
