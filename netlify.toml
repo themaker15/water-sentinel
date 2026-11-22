@@ -1,0 +1,5 @@
+# Public read-only dashboard (board-only mode): a static page, no build step.
+# Netlify reads this file and it overrides the publish folder set in the Netlify UI.
+[build]
+  publish = "frontend/dashboard"
+  command = ""

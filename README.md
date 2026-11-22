@@ -83,7 +83,7 @@ With three sensors, table salt and baking soda cannot be told apart; pH separate
 ## Board-only mode (the ESP32 detects by itself)
 
 The ESP32 runs MSPC on the board, alerts via ntfy and pushes a summary to ThingSpeak every 15 s.
-`frontend/dashboard/` is a single static page that reads that channel; drag the folder onto [Netlify Drop](https://app.netlify.com/drop) to publish it.
+`frontend/dashboard/` is a single static page that reads that channel. Netlify publishes it from this repository (`netlify.toml`); [Netlify Drop](https://app.netlify.com/drop) works too.
 
 - `py -m sentinel export-edge` writes `runtime/model/edge_model.json` and `edge_model.h` for the firmware.
 - `py -m sentinel edge-sim` pretends to be the board on the laptop (same maths, tested against the app).
@@ -138,7 +138,7 @@ API documentation is generated at http://127.0.0.1:8000/docs.
 
 ```
 python -m pip install -e ".[dev]"
-python -m pytest -q          # 22 tests, about 90 s, no hardware needed
+python -m pytest -q          # 23 tests, about 90 s, no hardware needed
 ruff check .                 # lint
 ```
 

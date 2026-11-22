@@ -60,3 +60,11 @@ def test_index_references_existing_static_files():
             assert (APP / url).is_file(), f"{css} points at missing {url}"
     for url in re.findall(r'url\("([^"]+)"\)', (DASH / "fonts.css").read_text(encoding="utf-8")):
         assert (DASH / url).is_file(), f"dashboard/fonts.css points at missing {url}"
+
+
+def test_netlify_publishes_the_dashboard():
+    """netlify.toml decides what water-sentinel.netlify.app serves; moving the folder must update it."""
+    import tomllib
+    cfg = tomllib.loads((ROOT / "netlify.toml").read_text(encoding="utf-8"))
+    publish = ROOT / cfg["build"]["publish"]
+    assert (publish / "index.html").is_file(), f"netlify.toml publishes {publish}, which has no index.html"
